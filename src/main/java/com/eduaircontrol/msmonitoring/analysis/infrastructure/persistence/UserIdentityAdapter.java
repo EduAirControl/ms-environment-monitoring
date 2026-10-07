@@ -10,11 +10,10 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 /**
- * Identidad del solicitante leida del token.
+ * Identidad del solicitante.
  *
- * <p>El servicio no tiene directorio de usuarios, y no deberia: el ID viaja en el
- * JWT desde que el emisor lo incluye. Asi el unico enlace con el dominio identity
- * es el token, no una consulta remota ni una tabla replicada.
+ * <p>Detrás del gateway (BFF) el id llega en el header {@code X-User-Id} y se publica
+ * como nombre del {@link Authentication}. En acceso directo el id viaja dentro del JWT.
  */
 @Component
 @RequiredArgsConstructor
@@ -24,7 +23,18 @@ public class UserIdentityAdapter implements UserIdentityPort {
 
     @Override
     public Optional<UUID> currentUserId() {
-        return currentClaims().map(jwtService::optionalUserId).orElseGet(Optional::empty);
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return Optional.empty();
+        }
+        // 1. Header del gateway: el nombre del Authentication es el userId (UUID).
+        try {
+            return Optional.of(UUID.fromString(authentication.getName()));
+        } catch (IllegalArgumentException ignored) {
+            // no es un UUID → probar con el token
+        }
+        // 2. Fallback: token en credentials.
+        return currentClaims().flatMap(jwtService::optionalUserId);
     }
 
     @Override
