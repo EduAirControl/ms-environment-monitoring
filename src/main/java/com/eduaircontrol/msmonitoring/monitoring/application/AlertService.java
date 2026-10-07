@@ -1,5 +1,6 @@
 package com.eduaircontrol.msmonitoring.monitoring.application;
 
+import com.eduaircontrol.msmonitoring.analysis.domain.model.PageResult;
 import com.eduaircontrol.msmonitoring.monitoring.domain.model.EnvironmentAlert;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.in.AlertUseCase;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.AlertRepository;
@@ -11,9 +12,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,8 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class AlertService implements AlertUseCase {
-
-    private static final int MAX_LIMIT = 100;
 
     private final AlertRepository alertRepository;
     private final VariableCatalogPort variableCatalogPort;
@@ -56,15 +52,12 @@ public class AlertService implements AlertUseCase {
     @Override
     @Transactional(readOnly = true)
     public List<AlertView> list(AlertQuery query) {
-        Pageable pageable = PageRequest.of(
-                Math.max(query.page(), 1) - 1,
-                Math.min(Math.max(query.limit(), 1), MAX_LIMIT),
-                Sort.by(Sort.Direction.DESC, "raisedAt"));
         Boolean active = query.status() == null ? null
                 : !"acknowledged".equalsIgnoreCase(query.status());
-        return alertRepository.search(
-                        query.environmentId(), active, query.from(), query.to(), pageable)
-                .getContent().stream().map(this::toView).toList();
+        PageResult<EnvironmentAlert> result = alertRepository.search(
+                query.environmentId(), active, query.from(), query.to(),
+                query.page(), query.limit());
+        return result.content().stream().map(this::toView).toList();
     }
 
     @Override
@@ -83,8 +76,6 @@ public class AlertService implements AlertUseCase {
         String variableCode = variableCatalogPort.findById(alert.getVariableId())
                 .map(VariableCatalogPort.VariableRef::code)
                 .orElse(alert.getVariableId().toString());
-        // La severidad se resuelve por el umbral; por ahora se deriva del estado.
-        // El detalle completo (valor disparador) requiere JOIN con la medicion.
         return new AlertView(
                 alert.getId(),
                 alert.getEducationalEnvironmentId(),
