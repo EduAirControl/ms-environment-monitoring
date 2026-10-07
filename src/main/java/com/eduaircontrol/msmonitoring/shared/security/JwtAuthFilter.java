@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -16,11 +17,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Autentica contra el mismo JWT que el monolito.
+ * Autenticación del servicio.
  *
- * <p>El token llega intacto porque el gateway lo reenvia. Validarlo tambien aqui
- * (y no confiar solo en el gateway) evita que ms-environment-monitoring quede expuesto si
- * alguien lo consume directamente en una red interna.
+ * <p>Prioriza los headers internos que añade el api-gateway (ADR-006/017):
+ * {@code X-User-Id} (UUID) y {@code X-User-Role}. Si no vienen (llamada directa),
+ * cae al JWT HS256 interino. Así funciona tanto detrás del BFF como en acceso directo.
  */
 @Component
 @RequiredArgsConstructor
@@ -33,8 +34,20 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        final String authHeader = request.getHeader("Authorization");
+        String userId = request.getHeader("X-User-Id");
+        String role = request.getHeader("X-User-Role");
+        if (userId != null && !userId.isBlank()) {
+            List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+            if (role != null && !role.isBlank()) {
+                authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+            }
+            SecurityContextHolder.getContext().setAuthentication(
+                    new UsernamePasswordAuthenticationToken(userId, null, authorities));
+            filterChain.doFilter(request, response);
+            return;
+        }
 
+        final String authHeader = request.getHeader("Authorization");
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
@@ -43,16 +56,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String token = authHeader.substring(7);
         try {
             String email = jwtService.extractEmail(token);
-            String role = jwtService.extractRole(token);
-
-            // El token se guarda como credentials porque ahi queda el userId, que
-            // Spring no expone por el Authentication. El nombre de usuario sigue
-            // siendo el correo, que es lo que espera el resto del servicio.
+            String roleFromToken = jwtService.extractRole(token);
             UsernamePasswordAuthenticationToken auth =
                     new UsernamePasswordAuthenticationToken(
                             email,
                             token,
-                            List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+                            List.of(new SimpleGrantedAuthority("ROLE_" + roleFromToken)));
             SecurityContextHolder.getContext().setAuthentication(auth);
         } catch (Exception e) {
             log.debug("Token invalido: {}", e.getMessage());
