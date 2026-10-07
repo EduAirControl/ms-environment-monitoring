@@ -11,9 +11,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,8 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class MeasurementService implements MeasurementUseCase {
-
-    private static final int MAX_LIMIT = 100;
 
     private final MeasurementRepository measurementRepository;
     private final VariableCatalogPort variableCatalogPort;
@@ -74,14 +69,10 @@ public class MeasurementService implements MeasurementUseCase {
     @Override
     @Transactional(readOnly = true)
     public List<MeasurementView> history(HistoryQuery query) {
-        Pageable pageable = PageRequest.of(
-                Math.max(query.page(), 1) - 1,
-                Math.min(Math.max(query.limit(), 1), MAX_LIMIT),
-                Sort.by(Sort.Direction.DESC, "measured_at"));
         return measurementRepository
                 .history(query.environmentId(), query.variableId(),
-                        query.from(), query.to(), pageable)
-                .getContent().stream()
+                        query.from(), query.to(), query.page(), query.limit())
+                .content().stream()
                 .map(measurement -> new MeasurementView(
                         measurement.getId(),
                         measurement.getVariableId(),
@@ -89,6 +80,12 @@ public class MeasurementService implements MeasurementUseCase {
                         measurement.getMeasuredValue(),
                         measurement.getMeasuredAt()))
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long count() {
+        return measurementRepository.count();
     }
 
     private String variableCodeOf(UUID variableId) {

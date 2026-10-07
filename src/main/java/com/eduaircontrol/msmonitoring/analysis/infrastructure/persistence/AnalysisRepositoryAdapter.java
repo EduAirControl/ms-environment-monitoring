@@ -4,6 +4,7 @@ import com.eduaircontrol.msmonitoring.analysis.domain.model.AnalysisPeriod;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.AnalysisStatus;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.AnalysisStatusCode;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.EnvironmentalAnalysis;
+import com.eduaircontrol.msmonitoring.analysis.domain.model.PageResult;
 import com.eduaircontrol.msmonitoring.analysis.domain.port.out.AnalysisRepository;
 import com.eduaircontrol.msmonitoring.analysis.domain.port.out.AnalysisStatusRepository;
 import java.util.List;
@@ -11,7 +12,8 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,14 +60,16 @@ public class AnalysisRepositoryAdapter implements AnalysisRepository {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<EnvironmentalAnalysis> search(UUID environmentId,
-                                             AnalysisStatusCode status,
-                                             Pageable pageable) {
-        Page<EnvironmentalAnalysis> page = analyses.search(environmentId,
+    public PageResult<EnvironmentalAnalysis> search(UUID environmentId,
+                                                    AnalysisStatusCode status,
+                                                    int page, int limit) {
+        Page<EnvironmentalAnalysis> result = analyses.search(environmentId,
                 status == null ? null : status.name(),
-                pageable);
-        page.getContent().forEach(resultLoader::withResults);
-        return page;
+                PageRequest.of(Math.max(page, 1) - 1,
+                        Math.min(Math.max(limit, 1), 100),
+                        Sort.by(Sort.Direction.DESC, "periodStart")));
+        result.getContent().forEach(resultLoader::withResults);
+        return new PageResult<>(result.getContent(), result.getTotalElements(), page, limit);
     }
 
     @Override
@@ -74,6 +78,12 @@ public class AnalysisRepositoryAdapter implements AnalysisRepository {
         return analyses.findByStatusCode(status.name()).stream()
                 .map(resultLoader::withResults)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long count() {
+        return analyses.count();
     }
 
     @Repository

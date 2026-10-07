@@ -3,10 +3,9 @@ package com.eduaircontrol.msmonitoring.analysis.domain.port.in;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.AnalysisPeriod;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.AnalysisStatusCode;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.EnvironmentalAnalysis;
+import com.eduaircontrol.msmonitoring.analysis.domain.model.PageResult;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 
 /**
  * Caso de uso de entrada: consulta de analisis historicos materializados.
@@ -15,7 +14,7 @@ public interface FindAnalysisUseCase {
 
     Optional<EnvironmentalAnalysis> byId(UUID id);
 
-    Page<EnvironmentalAnalysis> search(Query query);
+    PageResult<EnvironmentalAnalysis> search(Query query);
 
     /**
      * Ultimo analisis completado de un ambiente para el periodo que contiene el
@@ -25,8 +24,12 @@ public interface FindAnalysisUseCase {
                                                     AnalysisPeriod period,
                                                     java.time.Instant referenceDate);
 
+    /** Total de analisis registrados. */
+    long count();
+
     record Query(UUID environmentId,
                  AnalysisStatusCode status,
-                 Pageable pageable) {
+                 int page,
+                 int limit) {
     }
 }

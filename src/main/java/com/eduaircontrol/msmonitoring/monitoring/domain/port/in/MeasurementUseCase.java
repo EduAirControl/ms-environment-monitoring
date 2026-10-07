@@ -19,6 +19,9 @@ public interface MeasurementUseCase {
     /** Historial paginado por variable y ventana (HU-MON-004). */
     List<MeasurementView> history(HistoryQuery query);
 
+    /** Total de mediciones registradas. */
+    long count();
+
     record RecordCommand(
             UUID sensorInstallationId,
             UUID variableId,

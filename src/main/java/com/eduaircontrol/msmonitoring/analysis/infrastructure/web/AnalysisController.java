@@ -4,6 +4,7 @@ import com.eduaircontrol.msmonitoring.analysis.application.FindAnalysisService;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.AnalysisPeriod;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.AnalysisStatusCode;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.EnvironmentalAnalysis;
+import com.eduaircontrol.msmonitoring.analysis.domain.model.PageResult;
 import com.eduaircontrol.msmonitoring.analysis.domain.port.in.FindAnalysisUseCase;
 import com.eduaircontrol.msmonitoring.analysis.domain.port.in.RequestAnalysisUseCase;
 import com.eduaircontrol.msmonitoring.analysis.infrastructure.web.dto.AnalysisRequest;
@@ -18,10 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -74,16 +71,15 @@ public class AnalysisController {
             @RequestParam(name = "status", required = false) AnalysisStatusCode status,
             @RequestParam(name = "page", defaultValue = "1") int page,
             @RequestParam(name = "limit", defaultValue = "20") int limit) {
-        Pageable pageable = PageRequest.of(Math.max(page, 1) - 1,
-                Math.min(Math.max(limit, 1), MAX_LIMIT),
-                Sort.by(Sort.Direction.DESC, "periodStart"));
-        Page<EnvironmentalAnalysis> result = findAnalysisUseCase.search(
-                new FindAnalysisUseCase.Query(environmentId, status, pageable));
+        int safePage = Math.max(page, 1);
+        int safeLimit = Math.min(Math.max(limit, 1), MAX_LIMIT);
+        PageResult<EnvironmentalAnalysis> result = findAnalysisUseCase.search(
+                new FindAnalysisUseCase.Query(environmentId, status, safePage, safeLimit));
 
         return new AnalysisPageResponse(
-                result.getContent().stream().map(analysis -> toResponse(analysis, null)).toList(),
-                new PageMeta(result.getNumber() + 1, result.getSize(),
-                        result.getTotalElements(), result.getTotalPages()));
+                result.content().stream().map(analysis -> toResponse(analysis, null)).toList(),
+                new PageMeta(safePage, safeLimit,
+                        result.totalElements(), result.totalPages()));
     }
 
     @GetMapping("/{id}")
