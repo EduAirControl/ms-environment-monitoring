@@ -124,3 +124,5 @@ databaseChangeLog:
   #    asi la migracion de analisis preexistentes no requiere traduccion.
   - include:
       file: db/changelog/changes/010-seed-reference.yaml
+  - include:
+      file: db/changelog/changes/011-relax-installation-projection-environment-type.yaml
