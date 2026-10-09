@@ -39,10 +39,6 @@ class SensorInstallationListenerTest extends ConsumerTestBase {
         registry.add("app.messaging.installations-queue", () -> INSTALLATIONS_QUEUE);
     }
 
-    private org.springframework.amqp.rabbit.core.RabbitAdmin admin() {
-        return new org.springframework.amqp.rabbit.core.RabbitAdmin(connectionFactory);
-    }
-
     private void publishInstallation(UUID eventId, UUID installationId, UUID environmentId,
                                     Instant removedAt) {
         // La topologia (exchange, cola con DLX, binding) ya la declara la propia
@@ -155,26 +151,5 @@ class SensorInstallationListenerTest extends ConsumerTestBase {
         assertThat(environmentTypeOf(installationId)).isNull();
     }
 
-    private void sleep(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
 
-    private boolean await(java.util.function.BooleanSupplier condition, long timeoutMillis) {
-        long deadline = System.currentTimeMillis() + timeoutMillis;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return true;
-            }
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-        return condition.getAsBoolean();
-    }
 }

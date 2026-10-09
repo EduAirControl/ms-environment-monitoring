@@ -177,6 +177,24 @@
 					</execution>
 				</executions>
 			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!--
+						Docker Engine 29 rechaza API < 1.40 y docker-java negocia 1.32 por
+						defecto (BadRequestException en el arranque de los contenedores).
+						La propiedad docker.api.version se inyecta aqui porque el JVM de
+						surefire es un fork y no hereda propiedades de sistema de Maven.
+					-->
+					<systemPropertyVariables>
+						<api.version>${docker.api.version}</api.version>
+					</systemPropertyVariables>
+					<environmentVariables>
+						<DOCKER_API_VERSION>${docker.api.version}</DOCKER_API_VERSION>
+					</environmentVariables>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
 

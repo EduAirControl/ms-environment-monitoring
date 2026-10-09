@@ -28,6 +28,7 @@ public class MeasurementService implements MeasurementUseCase {
 
     private final MeasurementRepository measurementRepository;
     private final VariableCatalogPort variableCatalogPort;
+    private final MeasurementAlertingService alertingService;
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
@@ -51,7 +52,14 @@ public class MeasurementService implements MeasurementUseCase {
                 .qualityFlagId(qualityFlagId("VALID"))
                 .createdAt(clock.instant())
                 .build();
-        return measurementRepository.save(measurement).getId();
+        UUID savedId = measurementRepository.save(measurement).getId();
+
+        // La evaluacion de umbrales corre en la misma transaccion que el registro:
+        // o queda la medicion con su alerta, o no queda ninguna de las dos.
+        alertingService.evaluate(savedId, command.sensorInstallationId(),
+                command.variableId(), command.value(), measuredAt);
+
+        return savedId;
     }
 
     @Override
