@@ -1,93 +1,133 @@
 package com.eduaircontrol.msmonitoring.shared.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
-import java.nio.charset.StandardCharsets;
-import java.security.Key;
-import java.util.Date;
-import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 /**
- * Lectura del JWT compartido con el monolito.
+ * Validación de access tokens RS256 (ADR-006).
  *
- * <p>El servicio <b>no firma</b> tokens: solo valida el que trae la peticion. El
- * emisor sigue siendo el monolito y la clave es la misma, de modo que el gateway
- * y este servicio ven exactamente la misma identidad.
+ * <p>Este servicio <b>no emite</b> tokens: los emite ms-security y los valida el
+ * api-gateway. Aquí solo se comprueba la firma contra la clave pública publicada
+ * en su JWKS, de modo que un token real interopera entre servicios (antes cada uno
+ * validaba HS256 con un secreto compartido y ningún token de ms-security era
+ * válido aquí).
  *
- * <p>El claim {@code userId} es opcional a proposito: los tokens emitidos antes de
- * que existiera no lo llevan. Un token sin el no es invalido, simplemente deja
- * {@code requested_by} en null.
+ * <p>Los roles viajan como lista en el claim {@code roles}. Se conserva también la
+ * lectura de {@code role} (string) por si llegara un token del monolito.
  */
-@Slf4j
 @Service
+@RequiredArgsConstructor
 public class JwtService {
 
-    private static final String CLAIM_USER_ID = "userId";
+    private final JwksKeyResolver keyResolver;
 
-    @Value("${jwt.secret}")
-    private String secretKey;
+    /**
+     * @throws JwtException si el token está vencido, mal firmado o malformado
+     */
+    public AuthenticatedUser authenticate(String token) {
+        Claims claims = parse(token);
 
-    @Value("${jwt.expiration:86400000}")
-    private Long expiration;
-
-    private Key signingKey() {
-        return Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
+        return new AuthenticatedUser(
+                optionalUserId(claims).orElse(null),
+                claims.get("email", String.class),
+                claims.get("username", String.class),
+                rolesOf(claims),
+                parseUuid(claimAsString(claims, "institutionId")),
+                parseUuid(claimAsString(claims, "campusId")));
     }
 
-    /** Correo del titular (claim {@code sub}). */
-    public String extractEmail(String token) {
-        return claims(token).getSubject();
-    }
-
-    public String extractRole(String token) {
-        return claims(token).get("role", String.class);
-    }
-
-    public Optional<UUID> extractUserId(String token) {
-        return optionalUserId(claims(token));
-    }
-
-    public Optional<UUID> optionalUserId(Claims claims) {
-        if (claims == null) {
-            return Optional.empty();
-        }
-        Object raw = claims.get(CLAIM_USER_ID);
-        if (raw == null) {
-            return Optional.empty();
-        }
-        try {
-            return Optional.of(UUID.fromString(raw.toString()));
-        } catch (IllegalArgumentException e) {
-            log.warn("El claim userId del token no es un UUID: {}", raw);
-            return Optional.empty();
-        }
-    }
-
-    public boolean isTokenValid(String token) {
-        try {
-            claims(token);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /** Claims completos del token, o excepcion si es invalido. */
+    /**
+     * Claims de un token válido. Se expone porque hay componentes
+     * ({@code UserIdentityAdapter}) que resuelven la identidad a partir del token
+     * guardado como credencial de la autenticación.
+     *
+     * @throws JwtException si el token está vencido, mal firmado o malformado
+     */
     public Claims parse(String token) {
-        return claims(token);
-    }
-
-    private Claims claims(String token) {
-        // jjwt 0.11.5: el conversor a Claims sigue siendo parseClaimsJws/getBody.
         return Jwts.parserBuilder()
-                .setSigningKey(signingKey())
+                .setSigningKey(keyResolver.resolve(kidOf(token)))
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
+    }
+
+    /**
+     * Id de usuario de un token válido.
+     *
+     * <p>Mismo criterio que el api-gateway: manda el claim {@code userId} si existe
+     * y, si no, el {@code sub}. ms-security pone el id en {@code sub}; los tokens de
+     * prueba y los del monolito lo llevan en {@code userId}.
+     */
+    public java.util.Optional<UUID> optionalUserId(Claims claims) {
+        UUID fromClaim = parseUuid(claimAsString(claims, "userId"));
+        return fromClaim != null
+                ? java.util.Optional.of(fromClaim)
+                : java.util.Optional.ofNullable(parseUuid(claims.getSubject()));
+    }
+
+    /** {@code kid} del header JWT; si no hay header legible, null y se rechaza abajo. */
+    private String kidOf(String token) {
+        String[] parts = token.split("\\.");
+        if (parts.length != 3) {
+            throw new JwtException("Token malformado");
+        }
+        try {
+            String header = new String(
+                    java.util.Base64.getUrlDecoder().decode(parts[0]),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            int at = header.indexOf("\"kid\"");
+            if (at < 0) {
+                return null;
+            }
+            int start = header.indexOf('"', header.indexOf(':', at) + 1);
+            int end = header.indexOf('"', start + 1);
+            return start >= 0 && end > start ? header.substring(start + 1, end) : null;
+        } catch (RuntimeException e) {
+            throw new JwtException("Header del token ilegible", e);
+        }
+    }
+
+    /**
+     * Roles del token. La forma canónica es {@code roles} (lista, la que emite
+     * ms-security); se acepta {@code role} (string) como residuo del monolito.
+     */
+    static List<String> rolesOf(Claims claims) {
+        Object roles = claims.get("roles");
+        if (roles instanceof List<?> list) {
+            return list.stream().map(String::valueOf).toList();
+        }
+        String single = claims.get("role", String.class);
+        return single == null || single.isBlank() ? List.of() : List.of(single);
+    }
+
+    private static String claimAsString(Claims claims, String name) {
+        Object value = claims.get(name);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private static UUID parseUuid(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** Identidad extraída de un token válido. */
+    public record AuthenticatedUser(
+            UUID userId,
+            String email,
+            String username,
+            List<String> roles,
+            UUID institutionId,
+            UUID campusId) {
     }
 }

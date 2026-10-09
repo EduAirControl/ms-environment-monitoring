@@ -55,13 +55,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         String token = authHeader.substring(7);
         try {
-            String email = jwtService.extractEmail(token);
-            String roleFromToken = jwtService.extractRole(token);
+            JwtService.AuthenticatedUser user = jwtService.authenticate(token);
+            // El token se guarda como credencial: UserIdentityAdapter lo relee para
+            // resolver el userId cuando no llega por el header del gateway.
             UsernamePasswordAuthenticationToken auth =
                     new UsernamePasswordAuthenticationToken(
-                            email,
+                            user.email() != null ? user.email() : String.valueOf(user.userId()),
                             token,
-                            List.of(new SimpleGrantedAuthority("ROLE_" + roleFromToken)));
+                            user.roles().stream()
+                                    .map(r -> new SimpleGrantedAuthority("ROLE_" + r))
+                                    .toList());
             SecurityContextHolder.getContext().setAuthentication(auth);
         } catch (Exception e) {
             log.debug("Token invalido: {}", e.getMessage());
