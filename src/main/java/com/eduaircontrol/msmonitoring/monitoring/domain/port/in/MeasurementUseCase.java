@@ -16,6 +16,14 @@ public interface MeasurementUseCase {
     /** Ultimos valores por variable de un ambiente (HU-MON-003). */
     List<CurrentValue> currentValues(UUID environmentId);
 
+    /**
+     * Ultima medicion por (ambiente, variable) de todos los ambientes.
+     *
+     * <p>Es lo que consume el panel web: sin esto, pintar el ranking obligaria a
+     * una consulta por ambiente.
+     */
+    List<EnvironmentCurrentValue> currentValuesForAll();
+
     /** Historial paginado por variable y ventana (HU-MON-004). */
     List<MeasurementView> history(HistoryQuery query);
 
@@ -30,6 +38,14 @@ public interface MeasurementUseCase {
     }
 
     record CurrentValue(
+            UUID variableId,
+            String variableCode,
+            BigDecimal value,
+            Instant measuredAt) {
+    }
+
+    record EnvironmentCurrentValue(
+            UUID environmentId,
             UUID variableId,
             String variableCode,
             BigDecimal value,

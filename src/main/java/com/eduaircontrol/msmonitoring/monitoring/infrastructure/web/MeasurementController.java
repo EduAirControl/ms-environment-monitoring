@@ -44,6 +44,17 @@ public class MeasurementController {
         return new MeasurementIdResponse(id);
     }
 
+    /**
+     * Ultimos valores por variable de TODOS los ambientes (panel web).
+     *
+     * <p>Una sola consulta: pintar el ranking de ambientes sin este endpoint
+     * obligaria a una peticion por ambiente.
+     */
+    @GetMapping("/environments/current")
+    public List<MeasurementUseCase.EnvironmentCurrentValue> currentAll() {
+        return measurementUseCase.currentValuesForAll();
+    }
+
     /** Ultimos valores por variable de un ambiente (HU-MON-003). */
     @GetMapping("/environments/{id}/current")
     public List<MeasurementUseCase.CurrentValue> current(@PathVariable UUID id) {

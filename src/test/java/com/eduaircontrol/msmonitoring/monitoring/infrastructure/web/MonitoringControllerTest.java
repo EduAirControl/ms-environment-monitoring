@@ -123,6 +123,63 @@ class MonitoringControllerTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.length()").value(0));
     }
 
+    /**
+     * El panel web pinta el ranking de ambientes: sin este endpoint tendria que
+     * hacer una peticion por ambiente. Aqui se comprueba que una sola llamada
+     * trae la ultima medicion de cada (ambiente, variable).
+     */
+    @Test
+    void returnsCurrentValuesForAllEnvironments() throws Exception {
+        UUID otherEnv = UUID.randomUUID();
+        UUID otherInstallation = UUID.randomUUID();
+        jdbc.update("""
+                insert into environment_monitoring.educational_environment
+                    (educational_environment_id, code, name, environment_type_id, floor)
+                values (?, 'MON-TEST-2', 'Ambiente dos', ?, 1)
+                ON CONFLICT (educational_environment_id) DO NOTHING
+                """, otherEnv, ENVIRONMENT_TYPE_ID);
+        jdbc.update("""
+                insert into environment_monitoring.installation_projection
+                    (sensor_installation_id, educational_environment_id,
+                     environment_type_id, sensor_id)
+                values (?, ?, ?, ?)
+                ON CONFLICT (sensor_installation_id) DO NOTHING
+                """, otherInstallation, otherEnv, ENVIRONMENT_TYPE_ID, UUID.randomUUID());
+
+        Instant older = Instant.now().minusSeconds(3600);
+        jdbc.update("""
+                insert into environment_monitoring.environment_measurement
+                    (environment_measurement_id, sensor_installation_id, variable_id,
+                     measured_value, measured_at, quality_flag_id)
+                values (?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), INSTALLATION_ID, TEMPERATURE,
+                new BigDecimal("23.0"), Timestamp.from(older), VALID_FLAG);
+        // La mas reciente del MISMO (ambiente, variable) debe ganar.
+        jdbc.update("""
+                insert into environment_monitoring.environment_measurement
+                    (environment_measurement_id, sensor_installation_id, variable_id,
+                     measured_value, measured_at, quality_flag_id)
+                values (?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), INSTALLATION_ID, TEMPERATURE,
+                new BigDecimal("25.5"), Timestamp.from(Instant.now()), VALID_FLAG);
+        jdbc.update("""
+                insert into environment_monitoring.environment_measurement
+                    (environment_measurement_id, sensor_installation_id, variable_id,
+                     measured_value, measured_at, quality_flag_id)
+                values (?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), otherInstallation, CO2,
+                new BigDecimal("600"), Timestamp.from(Instant.now()), VALID_FLAG);
+
+        mockMvc.perform(get("/api/v1/environments/current")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[?(@.environmentId=='" + ENVIRONMENT_ID
+                        + "' && @.variableCode=='temperature' && @.value==25.5)]").exists())
+                .andExpect(jsonPath("$[?(@.environmentId=='" + otherEnv
+                        + "' && @.variableCode=='co2')]").exists());
+    }
+
     @Test
     void requiresAuthenticationForMeasurements() throws Exception {
         mockMvc.perform(get("/api/v1/environments/{id}/current", ENVIRONMENT_ID))

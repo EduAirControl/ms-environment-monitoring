@@ -36,6 +36,27 @@ public interface EnvironmentMeasurementJpaRepository
             @Param("environmentId") UUID environmentId);
 
     @Query(value = """
+            select p.educational_environment_id as educational_environment_id,
+                   m.variable_id as variable_id,
+                   m.measured_value as measured_value,
+                   m.measured_at as measured_at
+            from environment_monitoring.environment_measurement m
+            join environment_monitoring.installation_projection p
+                on p.sensor_installation_id = m.sensor_installation_id
+            where p.removed_at is null
+              and (p.educational_environment_id, m.variable_id, m.measured_at) in (
+                  select p2.educational_environment_id, m2.variable_id, max(m2.measured_at)
+                  from environment_monitoring.environment_measurement m2
+                  join environment_monitoring.installation_projection p2
+                      on p2.sensor_installation_id = m2.sensor_installation_id
+                  where p2.removed_at is null
+                  group by p2.educational_environment_id, m2.variable_id
+              )
+            order by p.educational_environment_id
+            """, nativeQuery = true)
+    List<EnvironmentCurrentProjection> latestAll();
+
+    @Query(value = """
             select m.* from environment_monitoring.environment_measurement m
             join environment_monitoring.installation_projection p
                 on p.sensor_installation_id = m.sensor_installation_id
