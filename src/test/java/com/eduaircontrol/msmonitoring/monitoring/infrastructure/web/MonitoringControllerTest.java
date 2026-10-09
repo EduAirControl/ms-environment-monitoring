@@ -80,9 +80,10 @@ class MonitoringControllerTest extends PostgresTestBase {
         token = tokenFor(UUID.randomUUID(), "monitor@test.com");
     }
 
+    /** Token de dispositivo: el unico que puede enviar mediciones. */
     private String tokenFor(UUID userId, String email) {
         return com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                userId, email, "USER");
+                userId, email, "DEVICE");
     }
 
     @Test
@@ -184,5 +185,52 @@ class MonitoringControllerTest extends PostgresTestBase {
     void requiresAuthenticationForMeasurements() throws Exception {
         mockMvc.perform(get("/api/v1/environments/{id}/current", ENVIRONMENT_ID))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * Un rol de usuario normal no basta para ingerir: solo DEVICE o ADMIN.
+     */
+    @Test
+    void rejectsIngestFromAnOrdinaryUserToken() throws Exception {
+        String userToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                UUID.randomUUID(), "user@test.com", "USER");
+
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", "Bearer " + userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ingestBody()))
+                .andExpect(status().isForbidden());
+    }
+
+    /**
+     * Este es el hueco que usaba el firmware: forjar el header del gateway y
+     * declararse ADMIN. La via de headers queda excluida del endpoint de ingesta.
+     */
+    @Test
+    void rejectsIngestFromForgedGatewayHeaders() throws Exception {
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("X-User-Id", "esp32-test")
+                        .header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ingestBody()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void acceptsIngestFromAnAdminToken() throws Exception {
+        String adminToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                UUID.randomUUID(), "admin@test.com", "ADMIN");
+
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ingestBody()))
+                .andExpect(status().isCreated());
+    }
+
+    private String ingestBody() {
+        return "{\"sensorInstallationId\":\"" + INSTALLATION_ID + "\""
+                + ",\"variableId\":\"" + TEMPERATURE + "\""
+                + ",\"value\":21.5}";
     }
 }

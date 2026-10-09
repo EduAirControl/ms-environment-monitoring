@@ -29,6 +29,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthFilter.class);
 
+    /**
+     * Autoridad que marca una autenticacion proveniente de los headers internos
+     * del gateway. No la otorga el token: la anade el filtro siempre que se use
+     * la via de headers, asi que no se puede forjar desde el token ni desde los
+     * propios headers.
+     */
+    public static final String HEADER_AUTHORITY = "ROLE_HEADER";
+
     private final JwtService jwtService;
 
     @Override
@@ -38,6 +46,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String role = request.getHeader("X-User-Role");
         if (userId != null && !userId.isBlank()) {
             List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+            // Marca de origen: toda autenticacion derivada de headers la lleva,
+            // venga el rol que venga. Asi un punto sensible puede exigir un token
+            // real y rechazar el header forjado, que es lo que hacia el firmware.
+            authorities.add(new SimpleGrantedAuthority(HEADER_AUTHORITY));
             if (role != null && !role.isBlank()) {
                 authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
             }
