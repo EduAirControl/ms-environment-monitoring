@@ -50,6 +50,18 @@ public class MeasurementRepositoryAdapter implements MeasurementRepository {
 
     @Override
     @Transactional(readOnly = true)
+    public List<EnvironmentCurrent> latestAll() {
+        return measurements.latestAll().stream()
+                .map(row -> new EnvironmentCurrent(
+                        row.getEducationalEnvironmentId(),
+                        row.getVariableId(),
+                        row.getMeasuredValue(),
+                        row.getMeasuredAt()))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public PageResult<EnvironmentMeasurement> history(UUID environmentId, UUID variableId,
                                                       Instant from, Instant to, int page, int limit) {
         Page<EnvironmentMeasurement> result = measurements.history(environmentId, variableId, from, to,

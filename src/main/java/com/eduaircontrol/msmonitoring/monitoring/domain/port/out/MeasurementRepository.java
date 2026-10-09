@@ -21,8 +21,21 @@ public interface MeasurementRepository {
 
     List<EnvironmentMeasurement> latestByEnvironment(UUID environmentId);
 
+    /**
+     * Ultima medicion por (ambiente, variable) de todos los ambientes.
+     *
+     * <p>Es lo que el panel necesita para pintar el ranking sin hacer una consulta
+     * por ambiente.
+     */
+    List<EnvironmentCurrent> latestAll();
+
     PageResult<EnvironmentMeasurement> history(UUID environmentId, UUID variableId,
                                                Instant from, Instant to, int page, int limit);
 
     long count();
+
+    /** Ultima medicion de una variable en un ambiente. */
+    record EnvironmentCurrent(UUID environmentId, UUID variableId,
+                              java.math.BigDecimal value, Instant measuredAt) {
+    }
 }

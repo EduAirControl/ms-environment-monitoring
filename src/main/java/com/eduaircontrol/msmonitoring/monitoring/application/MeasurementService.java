@@ -76,6 +76,19 @@ public class MeasurementService implements MeasurementUseCase {
 
     @Override
     @Transactional(readOnly = true)
+    public List<EnvironmentCurrentValue> currentValuesForAll() {
+        return measurementRepository.latestAll().stream()
+                .map(row -> new EnvironmentCurrentValue(
+                        row.environmentId(),
+                        row.variableId(),
+                        variableCodeOf(row.variableId()),
+                        row.value(),
+                        row.measuredAt()))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<MeasurementView> history(HistoryQuery query) {
         return measurementRepository
                 .history(query.environmentId(), query.variableId(),
