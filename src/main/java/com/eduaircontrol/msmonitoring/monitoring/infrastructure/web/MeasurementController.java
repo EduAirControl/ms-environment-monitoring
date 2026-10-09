@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,7 +33,16 @@ public class MeasurementController {
 
     private final MeasurementUseCase measurementUseCase;
 
-    /** Ingesta HTTP alternativa a MQTT (HU-MON-001). Idempotente por reintento. */
+    /**
+     * Ingesta HTTP alternativa a MQTT (HU-MON-001). Idempotente por reintento.
+     *
+     * <p>Exige un <b>token real</b>: el rol {@code DEVICE} es el de un dispositivo
+     * provisionado y {@code ADMIN} el de un operador. La via de headers del gateway
+     * queda excluida porque cualquiera que alcance el puerto puede forjar
+     * {@code X-User-Role: ADMIN} y ese era exactamente el hueco que usaba el
+     * firmware.
+     */
+    @PreAuthorize("hasAnyRole('DEVICE','ADMIN') and !hasRole('HEADER')")
     @PostMapping("/measurements")
     @ResponseStatus(HttpStatus.CREATED)
     public MeasurementIdResponse ingest(@Valid @RequestBody IngestRequest request) {
