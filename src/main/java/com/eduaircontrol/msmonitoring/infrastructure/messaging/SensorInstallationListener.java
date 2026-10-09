@@ -37,7 +37,8 @@ public class SensorInstallationListener {
 
     @RabbitListener(
             queues = "${app.messaging.installations-queue}",
-            containerFactory = "installationProjectionContainerFactory")
+            containerFactory = "installationProjectionContainerFactory",
+            autoStartup = "${app.messaging.listeners.auto-startup:true}")
     @Transactional
     public void onSensorInstallation(Message message) {
         SensorInstallationEvent event = parse(message);

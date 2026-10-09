@@ -21,6 +21,7 @@ databaseChangeLog:
       rollback:
         - sql:
             dbms: postgresql
+            sql: |
               DROP TABLE IF EXISTS environment_monitoring.inbox_message;
               DROP TABLE IF EXISTS environment_monitoring.environment_measurement;
 
@@ -43,6 +44,7 @@ databaseChangeLog:
       rollback:
         - sql:
             dbms: postgresql
+            sql: |
               DROP TABLE IF EXISTS environment_monitoring.quality_flag;
               DROP TABLE IF EXISTS environment_monitoring.severity;
               DROP TABLE IF EXISTS environment_monitoring.variable_threshold;
@@ -64,6 +66,7 @@ databaseChangeLog:
       rollback:
         - sql:
             dbms: postgresql
+            sql: |
               DROP TABLE IF EXISTS environment_monitoring.analysis_result;
               DROP TABLE IF EXISTS environment_monitoring.environmental_analysis;
               DROP TABLE IF EXISTS environment_monitoring.analysis_statuses;
@@ -79,6 +82,7 @@ databaseChangeLog:
       rollback:
         - sql:
             dbms: postgresql
+            sql: |
               DROP TABLE IF EXISTS environment_monitoring.environment_alert;
 
   # 6) Proyeccion local de instalaciones (DEC-006 §4.3).
@@ -92,6 +96,7 @@ databaseChangeLog:
       rollback:
         - sql:
             dbms: postgresql
+            sql: |
               DROP TABLE IF EXISTS environment_monitoring.installation_projection;
 
   # 7) Indices al final: referencian tablas de los changesets 2 a 6.
@@ -105,6 +110,7 @@ databaseChangeLog:
       rollback:
         - sql:
             dbms: postgresql
+            sql: |
               DROP INDEX IF EXISTS environment_monitoring.ix_installation_projection_environment;
               DROP INDEX IF EXISTS environment_monitoring.ix_environment_alert_raised;
               DROP INDEX IF EXISTS environment_monitoring.ix_environment_alert_environment;
@@ -120,7 +126,7 @@ databaseChangeLog:
               DROP INDEX IF EXISTS environment_monitoring.ix_environment_measurement_variable;
               DROP INDEX IF EXISTS environment_monitoring.ix_environment_measurement_inst_var_time;
 
-  # 6) Seeds de referencia. Los UUID coinciden con los del monolito a proposito:
+  # 8) Seeds de referencia. Los UUID coinciden con los del monolito a proposito:
   #    asi la migracion de analisis preexistentes no requiere traduccion.
   - include:
       file: db/changelog/changes/010-seed-reference.yaml
