@@ -43,8 +43,6 @@ class MonitoringControllerTest extends PostgresTestBase {
     private static final UUID VALID_FLAG =
             UUID.fromString("00000000-0000-4000-8000-000000000065");
 
-    @Value("${jwt.secret}")
-    private String secret;
 
     @Autowired
     private WebApplicationContext context;
@@ -83,15 +81,8 @@ class MonitoringControllerTest extends PostgresTestBase {
     }
 
     private String tokenFor(UUID userId, String email) {
-        Key key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        return Jwts.builder()
-                .setSubject(email)
-                .claim("role", "USER")
-                .claim("userId", userId.toString())
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 3_600_000))
-                .signWith(key)
-                .compact();
+        return com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                userId, email, "USER");
     }
 
     @Test

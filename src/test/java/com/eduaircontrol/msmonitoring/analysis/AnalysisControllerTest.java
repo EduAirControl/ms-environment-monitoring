@@ -46,8 +46,6 @@ class AnalysisControllerTest extends PostgresTestBase {
     private UUID environmentId;
     private UUID installationId;
 
-    @Value("${jwt.secret}")
-    private String secret;
 
     @Autowired
     private WebApplicationContext context;
@@ -121,15 +119,8 @@ class AnalysisControllerTest extends PostgresTestBase {
 
     /** Firma un token con el mismo secreto que usa el servicio. */
     private String tokenFor(UUID userId, String email) {
-        Key key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        return Jwts.builder()
-                .setSubject(email)
-                .claim("role", "USER")
-                .claim("userId", userId.toString())
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 3_600_000))
-                .signWith(key)
-                .compact();
+        return com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                userId, email, "USER");
     }
 
     private String json(String environment, String period) {
