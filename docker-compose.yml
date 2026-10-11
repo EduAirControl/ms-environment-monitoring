@@ -5,9 +5,9 @@ services:
     ports:
       - "${SERVER_PORT:-3003}:3003"
     environment:
-      POSTGRES_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-eduaircontrol}
-      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER es obligatorio}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD es obligatorio}
+      POSTGRES_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-eduaircontrol_monitoring}
+      POSTGRES_USER: ${POSTGRES_USER:-monitoring_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monitoring_pass}
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
@@ -35,9 +35,9 @@ services:
     image: postgres:15
     container_name: ms-environment-monitoring-db
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-eduaircontrol}
-      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER es obligatorio}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD es obligatorio}
+      POSTGRES_DB: ${POSTGRES_DB:-eduaircontrol_monitoring}
+      POSTGRES_USER: ${POSTGRES_USER:-monitoring_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monitoring_pass}
     ports:
       - "5433:5432"
     volumes:
