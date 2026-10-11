@@ -46,15 +46,16 @@ Consume `EnvironmentalDataRecorded` de `ms-sensor-management`:
 
 ## Arranque local
 
-Requiere PostgreSQL en `localhost:5432` y RabbitMQ en `localhost:5672`.
+Requiere PostgreSQL en `localhost:5432` (BD `eduaircontrol_monitoring`) y RabbitMQ en
+`localhost:5672`. La autenticación usa RS256 vía el JWKS de `ms-security` (ADR-006):
+no hay secreto local, el token lo emite ms-security.
 
 ```bash
-# PowerShell
-$env:POSTGRES_USER = "eduaircontrol"
-$env:POSTGRES_PASSWORD = "eduaircontrol"
-$env:JWT_SECRET = "una-clave-de-al-menos-32-caracteres-aqui"
+# local (necesita PostgreSQL con la BD eduaircontrol_monitoring)
+POSTGRES_USER=monitoring_user POSTGRES_PASSWORD=monitoring_pass ./mvnw spring-boot:run
 
-.\mvnw.cmd spring-boot:run
+# o stack completo del servicio (app + PostgreSQL + RabbitMQ)
+docker compose up --build
 ```
 
 Liquibase crea el esquema `environment_monitoring` al arrancar.
@@ -72,7 +73,7 @@ El seed de desarrollo inserta mediciones directamente por SQL, saltándose la in
 y el outbox. El backfill las copia al read model:
 
 ```bash
-.\mvnw.cmd spring-boot:run -Dspring-boot.run.arguments=--app.backfill.initial-run=true
+./mvnw spring-boot:run -Dspring-boot.run.arguments=--app.backfill.initial-run=true
 ```
 
 Es idempotente y trocea en ventanas de 30 días. La resincronización periódica
@@ -88,8 +89,8 @@ Es idempotente y trocea en ventanas de 30 días. La resincronización periódica
 | 3 · Análisis (dominio reutilizado) | Completada |
 | 4 · RabbitMQ + DLQ | Completada |
 | 5 · API REST | Completada |
-| 6 · Tests (86) + OpenAPI | Completada |
-| 7 · Docker + compose + E2E | Pendiente |
-| JWT RS256 | Diferido (HS256 funciona sin gateway) |
+| 6 · Tests (92) + OpenAPI | Completada |
+| 7 · Docker + compose | Completada |
+| JWT RS256 | Completada (validación vía JWKS, ADR-006) |
 | SSE tiempo real | Diferido a v2 |
 | MQTT directo | Diferido a v2 (HTTP + RabbitMQ cubren) |
