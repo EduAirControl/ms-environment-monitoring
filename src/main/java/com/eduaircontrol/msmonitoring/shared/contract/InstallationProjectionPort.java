@@ -17,12 +17,16 @@ import java.util.UUID;
  * <p>La replica se alimenta de los eventos de ms-sensor-management
  * ({@code sensor.installation.*}), asi que puede estar atrasada por segundos; el
  * unico caso en que eso importa es el de un borrado recien publicado.
+ *
+ * <p>{@code sensorId} es el que permite comprobar que un token de dispositivo solo
+ * escribe en su propia instalacion: sin el, cualquier installationId del cuerpo
+ * se aceptaria.
  */
 public interface InstallationProjectionPort {
 
     Optional<InstallationState> findState(UUID sensorInstallationId);
 
-    record InstallationState(UUID sensorInstallationId, Instant removedAt) {
+    record InstallationState(UUID sensorInstallationId, UUID sensorId, Instant removedAt) {
 
         /** Activas solo las que existen en la proyeccion y jamas se retiraron. */
         public boolean isActive() {

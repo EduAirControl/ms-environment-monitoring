@@ -38,6 +38,20 @@ public class UserIdentityAdapter implements UserIdentityPort {
     }
 
     @Override
+    public java.util.List<String> currentRoles() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return java.util.List.of();
+        }
+        return authentication.getAuthorities().stream()
+                .map(org.springframework.security.core.GrantedAuthority::getAuthority)
+                // El filtro agrega el prefijo ROLE_ para que Spring lo reconozca;
+                // aqui se devuelve el rol tal cual, sin el prefijo.
+                .map(a -> a.startsWith("ROLE_") ? a.substring(5) : a)
+                .toList();
+    }
+
+    @Override
     public Optional<String> currentEmail() {
         return currentClaims()
                 .map(claims -> claims.getSubject())

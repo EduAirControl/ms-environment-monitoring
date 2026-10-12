@@ -72,7 +72,7 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
     void recordingAMeasurementOverTheThresholdRaisesAnAlert() {
         // CO2 en 1200 supera el warning (0-1000) -> CRITICAL.
         measurementService.record(new MeasurementUseCase.RecordCommand(
-                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()));
+                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()), null);
 
         assertThat(alertCount()).isEqualTo(1);
     }
@@ -81,7 +81,7 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
     void recordingAMeasurementInsideTheNormalRangeRaisesNothing() {
         // CO2 en 400 esta dentro del rango INFO (0-800).
         measurementService.record(new MeasurementUseCase.RecordCommand(
-                INSTALLATION_ID, CO2, new BigDecimal("400"), Instant.now()));
+                INSTALLATION_ID, CO2, new BigDecimal("400"), Instant.now()), null);
 
         assertThat(alertCount()).isZero();
     }
@@ -89,7 +89,7 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
     @Test
     void reEvaluatingTheSameMeasurementDoesNotDuplicateTheAlert() {
         UUID measurementId = measurementService.record(new MeasurementUseCase.RecordCommand(
-                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()));
+                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()), null);
         assertThat(alertCount()).isEqualTo(1);
 
         alertingService.evaluate(measurementId, INSTALLATION_ID, CO2,
@@ -114,7 +114,7 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
         jdbc.update("DELETE FROM environment_monitoring.installation_projection");
 
         assertThatThrownBy(() -> measurementService.record(new MeasurementUseCase.RecordCommand(
-                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now())))
+                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()), null))
                 .isInstanceOf(GoneException.class);
 
         // Ni medicion almacenada ni alerta: la rechazada no deja rastro.

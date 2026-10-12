@@ -16,4 +16,13 @@ public interface UserIdentityPort {
 
     /** Correo del usuario del token actual. */
     java.util.Optional<String> currentEmail();
+
+    /**
+     * Roles del token actual.
+     *
+     * <p>Sirve para distinguir quien llama: un token de dispositivo lleva el rol
+     * {@code DEVICE} y su {@code sub} es el identificador del sensor, mientras que
+     * un operador ({@code ADMIN}/{@code SUPER_ADMIN}) no esta ligado a ninguno.
+     */
+    java.util.List<String> currentRoles();
 }

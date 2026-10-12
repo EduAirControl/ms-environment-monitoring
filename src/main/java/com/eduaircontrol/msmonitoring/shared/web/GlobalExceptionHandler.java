@@ -1,6 +1,7 @@
 package com.eduaircontrol.msmonitoring.shared.web;
 
 import com.eduaircontrol.msmonitoring.shared.exception.ConflictException;
+import com.eduaircontrol.msmonitoring.shared.exception.ForbiddenException;
 import com.eduaircontrol.msmonitoring.shared.exception.GoneException;
 import com.eduaircontrol.msmonitoring.shared.exception.NotFoundException;
 import com.eduaircontrol.msmonitoring.shared.exception.ValidationException;
@@ -50,6 +51,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(GoneException.class)
     public ResponseEntity<Map<String, Object>> handleGone(GoneException ex) {
         return body(HttpStatus.GONE.value(), ex.getMessage());
+    }
+
+    /** Instalacion ajena: el token de dispositivo no es el dueno de esa instalacion. */
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<Map<String, Object>> handleForbidden(ForbiddenException ex) {
+        return body(HttpStatus.FORBIDDEN.value(), ex.getMessage());
     }
 
     @ExceptionHandler(ValidationException.class)

@@ -27,12 +27,13 @@ public class InstallationProjectionAdapter implements InstallationProjectionPort
     @Override
     public Optional<InstallationState> findState(UUID sensorInstallationId) {
         return jdbc.query("""
-                        select sensor_installation_id, removed_at
+                        select sensor_installation_id, sensor_id, removed_at
                         from environment_monitoring.installation_projection
                         where sensor_installation_id = ?
                         """,
                         (rs, rowNum) -> new InstallationState(
                                 rs.getObject("sensor_installation_id", UUID.class),
+                                rs.getObject("sensor_id", UUID.class),
                                 rs.getTimestamp("removed_at") == null ? null
                                         : rs.getTimestamp("removed_at").toInstant()),
                         sensorInstallationId)

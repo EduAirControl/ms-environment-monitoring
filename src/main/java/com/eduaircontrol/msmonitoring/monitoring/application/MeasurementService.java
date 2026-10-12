@@ -5,6 +5,7 @@ import com.eduaircontrol.msmonitoring.monitoring.domain.port.in.MeasurementUseCa
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.MeasurementRepository;
 import com.eduaircontrol.msmonitoring.shared.contract.InstallationProjectionPort;
 import com.eduaircontrol.msmonitoring.shared.contract.VariableCatalogPort;
+import com.eduaircontrol.msmonitoring.shared.exception.ForbiddenException;
 import com.eduaircontrol.msmonitoring.shared.exception.GoneException;
 import com.eduaircontrol.msmonitoring.shared.exception.NotFoundException;
 import java.math.BigDecimal;
@@ -37,11 +38,11 @@ public class MeasurementService implements MeasurementUseCase {
 
     @Override
     @Transactional
-    public UUID record(RecordCommand command) {
+    public UUID record(RecordCommand command, UUID callerSensorId) {
         if (command.value() == null) {
             throw new IllegalArgumentException("value es obligatorio");
         }
-        requireActiveInstallation(command.sensorInstallationId());
+        requireActiveInstallation(command.sensorInstallationId(), callerSensorId);
         Instant measuredAt = command.measuredAt() != null ? command.measuredAt() : clock.instant();
         if (measurementRepository.existsByInstallationAndVariableAndInstant(
                 command.sensorInstallationId(), command.variableId(), measuredAt)) {
@@ -124,12 +125,25 @@ public class MeasurementService implements MeasurementUseCase {
      *
      * <p>410 y no 404: la instalacion existio, pero no volvera a estar activa.
      */
-    private void requireActiveInstallation(UUID sensorInstallationId) {
+    /**
+     * Comprueba que la instalacion exista, siga activa y, si quien llama es un
+     * dispositivo, que sea SU instalacion.
+     *
+     * <p>Sin esa ultima comprobacion cualquier token de dispositivo podia escribir
+     * en cualquier instalacion: solo hacia falta saber un installationId, que es
+     * publico en la respuesta de alta. Con {@code callerSensorId} nulo (un
+     * operador humano) no se exige pertenencia.
+     */
+    private void requireActiveInstallation(UUID sensorInstallationId, UUID callerSensorId) {
         InstallationProjectionPort.InstallationState state =
                 installationProjectionPort.findState(sensorInstallationId)
                         .orElseThrow(() -> new GoneException(
                                 "La instalacion no existe o fue purgada: " + sensorInstallationId
                                         + ". Reaprovisiona el dispositivo."));
+        if (callerSensorId != null && !callerSensorId.equals(state.sensorId())) {
+            throw new ForbiddenException(
+                    "El token no corresponde al sensor de esta instalacion: " + sensorInstallationId);
+        }
         if (!state.isActive()) {
             throw new GoneException(
                     "La instalacion esta cerrada y no admite mediciones: " + sensorInstallationId

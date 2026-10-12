@@ -42,6 +42,14 @@ class MonitoringControllerTest extends PostgresTestBase {
             UUID.fromString("00000000-0000-4000-8000-000000000073");
     private static final UUID VALID_FLAG =
             UUID.fromString("00000000-0000-4000-8000-000000000065");
+    /** Sensor dueno de INSTALLATION_ID: es el sub del token de dispositivo. */
+    private static final UUID SENSOR_ID =
+            UUID.fromString("cccccccc-0000-4000-8000-000000000001");
+    /** Instalacion de OTRO sensor, para comprobar que no se puede escribir en ella. */
+    private static final UUID OTHER_INSTALLATION_ID =
+            UUID.fromString("bbbbbbbb-0000-4000-8000-000000000002");
+    private static final UUID OTHER_SENSOR_ID =
+            UUID.fromString("cccccccc-0000-4000-8000-000000000002");
 
 
     @Autowired
@@ -66,18 +74,31 @@ class MonitoringControllerTest extends PostgresTestBase {
                 values (?, 'MON-TEST', 'Ambiente monitoreo', ?, 1)
                 ON CONFLICT (educational_environment_id) DO NOTHING
                 """, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID);
+        // Se limpia la proyeccion antes de sembrarla: ConsumerTestBase reutiliza el
+        // mismo INSTALLATION_ID con otro sensor_id y, con ON CONFLICT DO NOTHING,
+        // se quedaria su fila. Un solo borrado: si se repite entre los dos inserts,
+        // el segundo borra lo que acaba de sembrar el primero.
+        jdbc.update("DELETE FROM environment_monitoring.installation_projection");
         jdbc.update("""
                 insert into environment_monitoring.installation_projection
                     (sensor_installation_id, educational_environment_id,
                      environment_type_id, sensor_id)
                 values (?, ?, ?, ?)
                 ON CONFLICT (sensor_installation_id) DO NOTHING
-                """, INSTALLATION_ID, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID,
-                UUID.randomUUID());
+                """, INSTALLATION_ID, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, SENSOR_ID);
+        jdbc.update("""
+                insert into environment_monitoring.installation_projection
+                    (sensor_installation_id, educational_environment_id,
+                     environment_type_id, sensor_id)
+                values (?, ?, ?, ?)
+                ON CONFLICT (sensor_installation_id) DO NOTHING
+                """, OTHER_INSTALLATION_ID, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID,
+                OTHER_SENSOR_ID);
         jdbc.update("DELETE FROM environment_monitoring.environment_measurement");
         jdbc.update("DELETE FROM environment_monitoring.environment_alert");
 
-        token = tokenFor(UUID.randomUUID(), "monitor@test.com");
+        // El sub del token es el sensorId: asi se puede exigir pertenencia.
+        token = tokenFor(SENSOR_ID, "monitor@test.com");
     }
 
     /** Token de dispositivo: el unico que puede enviar mediciones. */
@@ -261,7 +282,9 @@ class MonitoringControllerTest extends PostgresTestBase {
                      environment_type_id, sensor_id, removed_at)
                 values (?, ?, ?, ?, now())
                 """, closedInstallation, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID,
-                UUID.randomUUID());
+                // Es la instalacion del propio sensor, cerrada: lo que le pasa a un
+                // ESP32 al que desvinculan. Si fuera de otro sensor daria 403.
+                SENSOR_ID);
 
         String body = "{\"sensorInstallationId\":\"" + closedInstallation + "\""
                 + ",\"variableId\":\"" + TEMPERATURE + "\""
@@ -289,8 +312,67 @@ class MonitoringControllerTest extends PostgresTestBase {
     }
 
     private String ingestBody() {
-        return "{\"sensorInstallationId\":\"" + INSTALLATION_ID + "\""
+        return ingestBodyFor(INSTALLATION_ID);
+    }
+
+    private String ingestBodyFor(java.util.UUID installationId) {
+        return "{\"sensorInstallationId\":\"" + installationId + "\""
                 + ",\"variableId\":\"" + TEMPERATURE + "\""
                 + ",\"value\":21.5}";
+    }
+
+    /**
+     * Un token de dispositivo solo puede escribir en SU instalacion. Sin esta
+     * comprobacion bastaba saber un installationId (es publico en la respuesta de
+     * alta) para envenenar la medicion de cualquier aula.
+     */
+    @Test
+    void deviceTokenCannotWriteToAnotherSensorsInstallation() throws Exception {
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ingestBodyFor(OTHER_INSTALLATION_ID)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void deviceTokenCanWriteToItsOwnInstallation() throws Exception {
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ingestBody()))
+                .andExpect(status().isCreated());
+    }
+
+    /** Un operador humano no esta ligado a ningun sensor: puede cargar en cualquiera. */
+    @Test
+    void adminTokenCanWriteToAnyInstallation() throws Exception {
+        String adminToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                UUID.randomUUID(), "admin@test.com", "ADMIN");
+
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ingestBodyFor(OTHER_INSTALLATION_ID)))
+                .andExpect(status().isCreated());
+    }
+
+    /** La fecha de la medicion no es libre: sin acotarla se puede retroactivar. */
+    @Test
+    void rejectsMeasuredAtOutOfRange() throws Exception {
+        String tooOld = "{\"sensorInstallationId\":\"" + INSTALLATION_ID + "\"" 
+                + ",\"variableId\":\"" + TEMPERATURE + "\"" 
+                + ",\"value\":21.0,\"measuredAt\":\"2020-01-01T00:00:00Z\"}";
+        String tooFar = "{\"sensorInstallationId\":\"" + INSTALLATION_ID + "\"" 
+                + ",\"variableId\":\"" + TEMPERATURE + "\"" 
+                + ",\"value\":21.0,\"measuredAt\":\"2099-01-01T00:00:00Z\"}";
+
+        for (String body : new String[] {tooOld, tooFar}) {
+            mockMvc.perform(post("/api/v1/measurements")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest());
+        }
     }
 }
