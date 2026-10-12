@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +31,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+/**
+ * Todo este controller exige un <b>token real</b>: la via de headers del gateway
+ * queda excluida porque cualquiera que alcance el puerto puede forjar
+ * {@code X-User-Id} y {@code X-User-Role}. El gateway reenvia el
+ * {@code Authorization} del cliente (o el de la sesion BFF), asi que las
+ * peticiones legitimas llegan igual.
+ */
+@PreAuthorize("!hasRole('HEADER')")
 /**
  * API del analisis historico (contrato: 07-api/contracts/openapi/ms-environment_monitoring.yaml).
  *
