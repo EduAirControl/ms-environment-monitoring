@@ -21,6 +21,14 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
+ * Todo este controller exige un <b>token real</b>: la via de headers del gateway
+ * queda excluida porque cualquiera que alcance el puerto puede forjar
+ * {@code X-User-Id} y {@code X-User-Role}. El gateway reenvia el
+ * {@code Authorization} del cliente (o el de la sesion BFF), asi que las
+ * peticiones legitimas llegan igual.
+ */
+@PreAuthorize("!hasRole('HEADER')")
+/**
  * API de mediciones (HU-MON-001 … HU-MON-004).
  *
  * <p>La ingesta principal llega por RabbitMQ desde ms-sensor-management. Este

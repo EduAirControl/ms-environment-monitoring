@@ -375,4 +375,49 @@ class MonitoringControllerTest extends PostgresTestBase {
                     .andExpect(status().isBadRequest());
         }
     }
+
+    /**
+     * Este era el hueco abierto: los headers del gateway se aceptaban sin mas y
+     * cualquiera en la red podia leerlo todo declarandose ADMIN. Ahora todos los
+     * endpoints de la API exigen un token real.
+     */
+    @Test
+    void rejectsForgedGatewayHeadersOnEveryEndpoint() throws Exception {
+        String[] paths = {
+                "/api/v1/environments/current",
+                "/api/v1/environments/" + ENVIRONMENT_ID + "/current",
+                "/api/v1/environments/" + ENVIRONMENT_ID + "/measurements",
+                "/api/v1/alerts",
+                "/api/v1/analyses",
+                "/api/v1/analyses/latest?environmentId=" + ENVIRONMENT_ID,
+                "/api/v1/dashboard/summary",
+                "/api/v1/dashboard/series",
+        };
+        for (String path : paths) {
+            mockMvc.perform(get(path)
+                            .header("X-User-Id", "00000000-0000-4000-8000-000000000001")
+                            .header("X-User-Role", "ADMIN"))
+                    .andExpect(status().isForbidden());
+        }
+
+        mockMvc.perform(post("/api/v1/alerts/" + UUID.randomUUID() + "/acknowledge")
+                        .header("X-User-Id", "00000000-0000-4000-8000-000000000001")
+                        .header("X-User-Role", "ADMIN"))
+                .andExpect(status().isForbidden());
+    }
+
+    /** Con un token real (aunque sea de usuario normal) las lecturas siguen abiertas. */
+    @Test
+    void allowsReadsWithARealToken() throws Exception {
+        String userToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                UUID.randomUUID(), "reader@test.com", "USER");
+
+        mockMvc.perform(get("/api/v1/environments/current")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/dashboard/summary")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk());
+    }
 }
