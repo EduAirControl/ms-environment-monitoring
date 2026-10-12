@@ -10,8 +10,16 @@ import java.util.UUID;
  */
 public interface MeasurementUseCase {
 
-    /** Persiste una medicion aceptada y devuelve su id. */
-    UUID record(RecordCommand command);
+    /**
+     * Persiste una medicion aceptada y devuelve su id.
+     *
+     * @param callerSensorId sensor del que viene la medicion cuando quien llama es
+     *        un dispositivo ({@code roles:["DEVICE"]}); {@code null} cuando es un
+     *        operador humano, que puede escribir en cualquier instalacion. Con
+     *        {@code null} no se exige pertenencia; con un valor, la instalacion del
+     *        comando tiene que ser de ese sensor.
+     */
+    UUID record(RecordCommand command, UUID callerSensorId);
 
     /** Ultimos valores por variable de un ambiente (HU-MON-003). */
     List<CurrentValue> currentValues(UUID environmentId);

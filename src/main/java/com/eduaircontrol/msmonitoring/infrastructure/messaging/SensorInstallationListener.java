@@ -50,6 +50,19 @@ public class SensorInstallationListener {
         }
 
         SensorInstallationEvent.Payload payload = event.payload();
+
+        // Borrado fisico: la instalacion dejo de existir en el servicio que la
+        // posee. No basta con marcar removed_at: hay que quitar la fila de la
+        // proyeccion y las mediciones que la referenciaban, porque sin ella ya no
+        // se pueden atribuir a ningun ambiente y solo ocuparian espacio.
+        if (SensorInstallationEvent.DELETED_TYPE.equals(event.eventType())) {
+            purgeMeasurements(payload.sensorInstallationId());
+            projectionDao.delete(payload.sensorInstallationId());
+            log.debug("Evento {} procesado: instalacion {} purgada",
+                    eventId, payload.sensorInstallationId());
+            return;
+        }
+
         UUID environmentTypeId = environmentTypeOf(payload.educationalEnvironmentId());
 
         projectionDao.upsert(
@@ -62,6 +75,24 @@ public class SensorInstallationListener {
         log.debug("Evento {} procesado: instalacion {} -> ambiente {} (retirada: {})",
                 eventId, payload.sensorInstallationId(), payload.educationalEnvironmentId(),
                 payload.removedAt() != null);
+    }
+
+    /**
+     * Borra las mediciones de una instalacion purgada.
+     *
+     * <p>No hay FK hacia {@code sensor_installation} (la proyeccion es una replica,
+     * no una copia con integridad referencial), asi que este DELETE es lo unico que
+     * impide que queden filas huerfanas invisibles para todas las consultas.
+     */
+    private void purgeMeasurements(UUID sensorInstallationId) {
+        int deleted = jdbc.update(
+                "delete from environment_monitoring.environment_measurement"
+                        + " where sensor_installation_id = ?",
+                sensorInstallationId);
+        if (deleted > 0) {
+            log.debug("Purgadas {} mediciones de la instalacion {}",
+                    deleted, sensorInstallationId);
+        }
     }
 
     private SensorInstallationEvent parse(Message message) {

@@ -4,12 +4,16 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Contrato del evento {@code SensorInstalled} / {@code SensorRemoved} publicado por
- * ms-sensor-management.
+ * Contrato del evento {@code SensorInstalled} / {@code SensorRemoved} /
+ * {@code SensorInstallationDeleted} publicado por ms-sensor-management.
  *
  * <p>Es una copia local del contrato del productor (ADR-016: contrato duplicado a
- * proposito, sin dependencia entre servicios). Los dos eventos comparten sobre y
+ * proposito, sin dependencia entre servicios). Los tres eventos comparten sobre y
  * solo se distinguen por el routing key y por {@code removedAt}.
+ *
+ * <p>{@code deleted} no es un cierre: es el borrado fisico de la instalacion, y el
+ * consumidor debe purgar la proyeccion y las mediciones en vez de marcar
+ * {@code removed_at}.
  *
  * <p><b>El payload no lleva environmentTypeId.</b> El productor no lo posee: solo
  * valida que el UUID del ambiente tenga forma correcta (DEC-007). Por eso
@@ -29,6 +33,8 @@ public record SensorInstallationEvent(
     public static final String INSTALLED_TYPE = "SensorInstalled";
 
     public static final String REMOVED_TYPE = "SensorRemoved";
+
+    public static final String DELETED_TYPE = "SensorInstallationDeleted";
 
     public static final int SCHEMA_VERSION = 1;
 

@@ -50,9 +50,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             // venga el rol que venga. Asi un punto sensible puede exigir un token
             // real y rechazar el header forjado, que es lo que hacia el firmware.
             authorities.add(new SimpleGrantedAuthority(HEADER_AUTHORITY));
-            if (role != null && !role.isBlank()) {
-                authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
-            }
+            addAuthorities(authorities, request.getHeader("X-User-Roles"), role);
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(userId, null, authorities));
             filterChain.doFilter(request, response);
@@ -84,4 +82,25 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         filterChain.doFilter(request, response);
     }
+
+    /**
+     * El gateway manda todos los roles en {@code X-User-Roles} (coma-separados) y deja el
+     * primero en {@code X-User-Role} por compatibilidad. Con un usuario de varios roles el
+     * header simple bastaba para perder SUPER_ADMIN al cruzar el gateway.
+     */
+    private static void addAuthorities(List<SimpleGrantedAuthority> authorities,
+            String rolesHeader, String singleRole) {
+        if (rolesHeader != null && !rolesHeader.isBlank()) {
+            for (String r : rolesHeader.split(",")) {
+                if (!r.isBlank()) {
+                    authorities.add(new SimpleGrantedAuthority("ROLE_" + r.trim()));
+                }
+            }
+            return;
+        }
+        if (singleRole != null && !singleRole.isBlank()) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_" + singleRole));
+        }
+    }
 }
+

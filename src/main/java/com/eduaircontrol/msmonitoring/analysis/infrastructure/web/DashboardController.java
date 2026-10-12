@@ -8,6 +8,7 @@ import com.eduaircontrol.msmonitoring.shared.contract.VariableCatalogPort;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -128,7 +129,7 @@ public class DashboardController {
 
         Map<Instant, List<MeasurementUseCase.MeasurementView>> bucketed = new LinkedHashMap<>();
         measurements.forEach(m -> {
-            Instant bucket = m.measuredAt().truncatedTo(bucketUnit);
+            Instant bucket = bucketOf(m.measuredAt(), bucketUnit);
             bucketed.computeIfAbsent(bucket, k -> new ArrayList<>()).add(m);
         });
 
@@ -142,6 +143,28 @@ public class DashboardController {
                 })
                 .sorted((a, b) -> a.bucket().compareTo(b.bucket()))
                 .toList();
+    }
+
+    private static Instant bucketOf(Instant instant, ChronoUnit unit) {
+        if (unit == ChronoUnit.DAYS || unit == ChronoUnit.HOURS || unit == ChronoUnit.MINUTES) {
+            return instant.truncatedTo(unit);
+        }
+        var zdt = instant.atZone(ZoneOffset.UTC);
+        return switch (unit) {
+            case WEEKS -> zdt.minusDays(zdt.getDayOfWeek().getValue() - 1L)
+                    .toLocalDate()
+                    .atStartOfDay(ZoneOffset.UTC)
+                    .toInstant();
+            case MONTHS -> zdt.toLocalDate()
+                    .withDayOfMonth(1)
+                    .atStartOfDay(ZoneOffset.UTC)
+                    .toInstant();
+            case YEARS -> zdt.toLocalDate()
+                    .withDayOfYear(1)
+                    .atStartOfDay(ZoneOffset.UTC)
+                    .toInstant();
+            default -> instant.truncatedTo(ChronoUnit.DAYS);
+        };
     }
 
     public record DashboardSummaryResponse(

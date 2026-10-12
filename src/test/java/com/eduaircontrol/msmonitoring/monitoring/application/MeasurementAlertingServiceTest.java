@@ -1,9 +1,11 @@
 package com.eduaircontrol.msmonitoring.monitoring.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.eduaircontrol.msmonitoring.PostgresTestBase;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.in.MeasurementUseCase;
+import com.eduaircontrol.msmonitoring.shared.exception.GoneException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -70,7 +72,7 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
     void recordingAMeasurementOverTheThresholdRaisesAnAlert() {
         // CO2 en 1200 supera el warning (0-1000) -> CRITICAL.
         measurementService.record(new MeasurementUseCase.RecordCommand(
-                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()));
+                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()), null);
 
         assertThat(alertCount()).isEqualTo(1);
     }
@@ -79,7 +81,7 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
     void recordingAMeasurementInsideTheNormalRangeRaisesNothing() {
         // CO2 en 400 esta dentro del rango INFO (0-800).
         measurementService.record(new MeasurementUseCase.RecordCommand(
-                INSTALLATION_ID, CO2, new BigDecimal("400"), Instant.now()));
+                INSTALLATION_ID, CO2, new BigDecimal("400"), Instant.now()), null);
 
         assertThat(alertCount()).isZero();
     }
@@ -87,7 +89,7 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
     @Test
     void reEvaluatingTheSameMeasurementDoesNotDuplicateTheAlert() {
         UUID measurementId = measurementService.record(new MeasurementUseCase.RecordCommand(
-                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()));
+                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()), null);
         assertThat(alertCount()).isEqualTo(1);
 
         alertingService.evaluate(measurementId, INSTALLATION_ID, CO2,
@@ -96,19 +98,30 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
         assertThat(alertCount()).isEqualTo(1);
     }
 
+    /**
+     * Antes se decidia guardar la medicion aunque no hubiera proyeccion ("no poder
+     * atribuirla no debe tirar la ingesta"). Eso dejo la base llena de filas que
+     * ninguna consulta devuelve, porque sin proyeccion no hay ambiente al que
+     * atribuirlas: era exactamente lo que pasaba cuando un ESP32 seguia enviando
+     * tras ser desvinculado.
+     *
+     * <p>Ahora se rechaza con 410. No se pierde nada por el retraso del broker: el
+     * firmware espera el warm-up del MQ-135 (180 s) antes de la primera medicion,
+     * mucho mas que el evento de instalacion.
+     */
     @Test
-    void withoutInstallationProjectionTheMeasurementIsKeptButNoAlertIsRaised() {
+    void recordingAgainstAnInstallationWithoutProjectionIsRejected() {
         jdbc.update("DELETE FROM environment_monitoring.installation_projection");
 
-        UUID measurementId = measurementService.record(new MeasurementUseCase.RecordCommand(
-                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()));
+        assertThatThrownBy(() -> measurementService.record(new MeasurementUseCase.RecordCommand(
+                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()), null))
+                .isInstanceOf(GoneException.class);
 
-        // La medicion se guarda igual: no poder atribuirla no debe tirar la ingesta.
+        // Ni medicion almacenada ni alerta: la rechazada no deja rastro.
         Long stored = jdbc.queryForObject(
-                "select count(*) from environment_monitoring.environment_measurement"
-                        + " where environment_measurement_id = ?",
-                Long.class, measurementId);
-        assertThat(stored).isEqualTo(1);
+                "select count(*) from environment_monitoring.environment_measurement",
+                Long.class);
+        assertThat(stored).isZero();
         assertThat(alertCount()).isZero();
     }
 }

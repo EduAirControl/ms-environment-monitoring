@@ -31,27 +31,69 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class MeasurementController {
 
+    private static final String DEVICE_ROLE = "DEVICE";
+
     private final MeasurementUseCase measurementUseCase;
+    private final com.eduaircontrol.msmonitoring.shared.contract.UserIdentityPort userIdentityPort;
 
     /**
      * Ingesta HTTP alternativa a MQTT (HU-MON-001). Idempotente por reintento.
      *
      * <p>Exige un <b>token real</b>: el rol {@code DEVICE} es el de un dispositivo
-     * provisionado y {@code ADMIN} el de un operador. La via de headers del gateway
+     * provisionado, {@code ADMIN} el de un operador y {@code SUPER_ADMIN} el del gestor
+     * global, que cuenta como administrador. La via de headers del gateway
      * queda excluida porque cualquiera que alcance el puerto puede forjar
      * {@code X-User-Role: ADMIN} y ese era exactamente el hueco que usaba el
      * firmware.
      */
-    @PreAuthorize("hasAnyRole('DEVICE','ADMIN') and !hasRole('HEADER')")
+    @PreAuthorize("hasAnyRole('DEVICE','ADMIN','SUPER_ADMIN') and !hasRole('HEADER')")
     @PostMapping("/measurements")
     @ResponseStatus(HttpStatus.CREATED)
     public MeasurementIdResponse ingest(@Valid @RequestBody IngestRequest request) {
+        requireMeasuredAtInRange(request.measuredAt());
         UUID id = measurementUseCase.record(new MeasurementUseCase.RecordCommand(
                 request.sensorInstallationId(),
                 request.variableId(),
                 request.value(),
-                request.measuredAt()));
+                request.measuredAt()),
+                callerSensorId());
         return new MeasurementIdResponse(id);
+    }
+
+    /**
+     * Sensor del que viene la medicion, o {@code null} si quien llama es una
+     * persona.
+     *
+     * <p>El {@code sub} del token de dispositivo ES el sensorId, y solo entonces se
+     * exige pertenencia: un operador ({@code ADMIN}/{@code SUPER_ADMIN}) puede
+     * cargar datos en cualquier instalacion.
+     */
+    private UUID callerSensorId() {
+        if (!userIdentityPort.currentRoles().contains(DEVICE_ROLE)) {
+            return null;
+        }
+        return userIdentityPort.currentUserId()
+                .orElseThrow(() -> new com.eduaircontrol.msmonitoring.shared.exception.ForbiddenException(
+                        "Token de dispositivo sin identidad"));
+    }
+
+    /**
+     * Acota la fecha de la medicion.
+     *
+     * <p>Sin esto el cliente controla por completo {@code measuredAt} y puede
+     * retroactivar o adelantar datos a voluntad, lo que ademas permite saltarse la
+     * dedup por (instalacion, variable, instante).
+     */
+    private static void requireMeasuredAtInRange(java.time.Instant measuredAt) {
+        if (measuredAt == null) {
+            return;
+        }
+        java.time.Instant now = java.time.Instant.now();
+        if (measuredAt.isBefore(now.minus(24, java.time.temporal.ChronoUnit.HOURS))
+                || measuredAt.isAfter(now.plus(5, java.time.temporal.ChronoUnit.MINUTES))) {
+            throw new com.eduaircontrol.msmonitoring.shared.exception.ValidationException(
+                    "measuredAt fuera de rango admitido");
+        }
     }
 
     /**
