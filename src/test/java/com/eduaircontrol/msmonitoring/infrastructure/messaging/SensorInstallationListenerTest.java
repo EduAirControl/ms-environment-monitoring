@@ -151,5 +151,88 @@ class SensorInstallationListenerTest extends ConsumerTestBase {
         assertThat(environmentTypeOf(installationId)).isNull();
     }
 
+    /**
+     * Borrado fisico: la instalacion dejo de existir, asi que hay que quitar la fila
+     * de la proyeccion (si quedara marcada como retirada estarian juntos los dos
+     * caminos de baja y nadie sabria cual gano) y las mediciones que la referenciaban.
+     */
+    @Test
+    void deletedEventPurgesTheProjectionAndItsMeasurements() {
+        UUID installationId = UUID.randomUUID();
+        publishInstallation(UUID.randomUUID(), installationId, ENVIRONMENT_ID, null);
+        assertThat(await(() -> projected(installationId), 10_000)).isTrue();
+
+        int written = jdbc.update("""
+                insert into environment_monitoring.environment_measurement
+                    (environment_measurement_id, sensor_installation_id, variable_id,
+                     measured_value, measured_at, quality_flag_id)
+                select gen_random_uuid(), ?, variable_id, 21.0, now(),
+                       '00000000-0000-4000-8000-000000000065'
+                from environment_monitoring.variable limit 2
+                """, installationId);
+        assertThat(written).isGreaterThan(0);
+
+        publishDeleted(installationId, ENVIRONMENT_ID);
+
+        assertThat(await(() -> !projected(installationId), 10_000)).isTrue();
+        assertThat(measurementRowsOf(installationId)).isZero();
+    }
+
+    /**
+     * El borrado debe cortar el flujo de datos del nodo: si la proyeccion siguiera
+     * atrasada con removed_at nulo, {@code MeasurementService} aceptaria mediciones
+     * contra una instalacion que ya no existe.
+     */
+    @Test
+    void deletedEventLeavesNoActiveTraceBehind() {
+        UUID installationId = UUID.randomUUID();
+        publishInstallation(UUID.randomUUID(), installationId, ENVIRONMENT_ID, null);
+        assertThat(await(() -> projected(installationId), 10_000)).isTrue();
+
+        publishDeleted(installationId, ENVIRONMENT_ID);
+
+        assertThat(await(() -> {
+            Integer rows = jdbc.queryForObject(
+                    "select count(*) from environment_monitoring.installation_projection"
+                            + " where sensor_installation_id = ? and removed_at is null",
+                    Integer.class, installationId);
+            return rows == null || rows == 0;
+        }, 10_000)).isTrue();
+    }
+
+    private void publishDeleted(UUID installationId, UUID environmentId) {
+        admin().purgeQueue(INSTALLATIONS_QUEUE, false);
+
+        UUID eventId = UUID.randomUUID();
+        String body = """
+                {"eventId":"%s","eventType":"SensorInstallationDeleted","aggregateId":"%s",\
+                "aggregateType":"SensorInstallation","occurredAt":"%s","version":1,\
+                "payload":{"sensorInstallationId":"%s","sensorId":"%s",\
+                "educationalEnvironmentId":"%s","installedAt":"%s","removedAt":"%s"},\
+                "metadata":{"correlationId":null,"causationId":null,"userId":null}}"""
+                .formatted(
+                        eventId,
+                        installationId,
+                        Instant.now(),
+                        installationId,
+                        UUID.randomUUID(),
+                        environmentId,
+                        Instant.now().minusSeconds(600),
+                        Instant.now());
+
+        Message message = MessageBuilder.withBody(body.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .setContentType(MessageProperties.CONTENT_TYPE_JSON)
+                .setMessageId(eventId.toString())
+                .build();
+        rabbit.send(INSTALLATIONS_EXCHANGE, "sensor.installation.deleted", message);
+    }
+
+    private int measurementRowsOf(UUID installationId) {
+        Integer n = jdbc.queryForObject(
+                "select count(*) from environment_monitoring.environment_measurement"
+                        + " where sensor_installation_id = ?",
+                Integer.class, installationId);
+        return n == null ? 0 : n;
+    }
 
 }

@@ -33,6 +33,11 @@ public class InstallationProjectionDao {
                 synced_at                  = now()
             """;
 
+    private static final String DELETE = """
+            DELETE FROM environment_monitoring.installation_projection
+            WHERE sensor_installation_id = ?
+            """;
+
     private final JdbcTemplate jdbc;
 
     public InstallationProjectionDao(JdbcTemplate jdbc) {
@@ -57,5 +62,18 @@ public class InstallationProjectionDao {
                 environmentTypeId,
                 sensorId,
                 removed);
+    }
+
+    /**
+     * Borra la instalacion de la proyeccion (evento
+     * {@code sensor.installation.deleted}).
+     *
+     * <p>No es un upsert con {@code removed_at}: la instalacion dejo de existir, y
+     * dejar la fila marcada como retirada mantendria en la base una referencia a un
+     * {@code sensor_installation_id} que ya no existe en el servicio que lo posee.
+     */
+    @Transactional
+    public void delete(UUID sensorInstallationId) {
+        jdbc.update(DELETE, sensorInstallationId);
     }
 }
