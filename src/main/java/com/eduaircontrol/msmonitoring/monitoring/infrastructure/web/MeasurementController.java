@@ -37,12 +37,13 @@ public class MeasurementController {
      * Ingesta HTTP alternativa a MQTT (HU-MON-001). Idempotente por reintento.
      *
      * <p>Exige un <b>token real</b>: el rol {@code DEVICE} es el de un dispositivo
-     * provisionado y {@code ADMIN} el de un operador. La via de headers del gateway
+     * provisionado, {@code ADMIN} el de un operador y {@code SUPER_ADMIN} el del gestor
+     * global, que cuenta como administrador. La via de headers del gateway
      * queda excluida porque cualquiera que alcance el puerto puede forjar
      * {@code X-User-Role: ADMIN} y ese era exactamente el hueco que usaba el
      * firmware.
      */
-    @PreAuthorize("hasAnyRole('DEVICE','ADMIN') and !hasRole('HEADER')")
+    @PreAuthorize("hasAnyRole('DEVICE','ADMIN','SUPER_ADMIN') and !hasRole('HEADER')")
     @PostMapping("/measurements")
     @ResponseStatus(HttpStatus.CREATED)
     public MeasurementIdResponse ingest(@Valid @RequestBody IngestRequest request) {

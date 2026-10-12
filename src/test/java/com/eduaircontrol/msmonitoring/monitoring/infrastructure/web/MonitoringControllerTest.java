@@ -228,6 +228,66 @@ class MonitoringControllerTest extends PostgresTestBase {
                 .andExpect(status().isCreated());
     }
 
+    /**
+     * SUPER_ADMIN cuenta como administrador, igual que en el resto de servicios.
+     */
+    @Test
+    void acceptsIngestFromASuperAdminToken() throws Exception {
+        String superAdminToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                UUID.randomUUID(), "sa@test.com", "SUPER_ADMIN");
+
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", "Bearer " + superAdminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ingestBody()))
+                .andExpect(status().isCreated());
+    }
+
+    /**
+     * Un nodo que sigue enviando tras ser desvinculado no debe llenar la base de
+     * mediciones que ninguna consulta devuelve: sin fila activa en la proyeccion no
+     * hay ambiente al que atribuirlas.
+     *
+     * <p>Usa una instalacion propia, no la constante: el setUp usa ON CONFLICT DO
+     * NOTHING y no limpiaria un removed_at que aqui se marcase, dejando el
+     * INSTALLATION_ID cerrado para el resto de los tests de la clase.
+     */
+    @Test
+    void rejectsIngestAgainstAClosedInstallation() throws Exception {
+        UUID closedInstallation = UUID.randomUUID();
+        jdbc.update("""
+                insert into environment_monitoring.installation_projection
+                    (sensor_installation_id, educational_environment_id,
+                     environment_type_id, sensor_id, removed_at)
+                values (?, ?, ?, ?, now())
+                """, closedInstallation, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID,
+                UUID.randomUUID());
+
+        String body = "{\"sensorInstallationId\":\"" + closedInstallation + "\""
+                + ",\"variableId\":\"" + TEMPERATURE + "\""
+                + ",\"value\":21.5}";
+
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isGone());
+    }
+
+    /** Mismo rechazo para una instalacion que nunca existio o fue purgada. */
+    @Test
+    void rejectsIngestAgainstAnUnknownInstallation() throws Exception {
+        String body = "{\"sensorInstallationId\":\"" + UUID.randomUUID() + "\""
+                + ",\"variableId\":\"" + TEMPERATURE + "\""
+                + ",\"value\":21.5}";
+
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isGone());
+    }
+
     private String ingestBody() {
         return "{\"sensorInstallationId\":\"" + INSTALLATION_ID + "\""
                 + ",\"variableId\":\"" + TEMPERATURE + "\""
