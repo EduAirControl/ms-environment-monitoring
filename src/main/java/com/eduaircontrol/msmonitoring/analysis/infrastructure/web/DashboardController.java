@@ -7,6 +7,7 @@ import com.eduaircontrol.msmonitoring.shared.contract.EnvironmentLookupPort;
 import com.eduaircontrol.msmonitoring.shared.contract.VariableCatalogPort;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
@@ -94,15 +95,33 @@ public class DashboardController {
             @RequestParam(name = "variable", defaultValue = "temperature") String variable,
             @RequestParam(name = "environmentId", required = false) UUID environmentId) {
 
-        ChronoUnit bucketUnit = switch (period.toLowerCase()) {
-            case "day" -> ChronoUnit.DAYS;
-            case "week" -> ChronoUnit.WEEKS;
-            case "month" -> ChronoUnit.MONTHS;
-            case "year" -> ChronoUnit.YEARS;
-            default -> ChronoUnit.DAYS;
-        };
+        // La ventana de consulta debe coincidir con el tamaño del bucket: si se
+        // pide "day" y se agrupa por dias con una ventana de 30 dias, todos los
+        // datos de las ultimas 24h caen en un solo bucket y la serie devuelve un
+        // unico punto, con lo que el grafico de area no dibuja nada. Cada periodo
+        // usa su propia granularidad y ventana.
+        ChronoUnit bucketUnit;
+        Duration window;
+        switch (period.toLowerCase()) {
+            case "week" -> {
+                bucketUnit = ChronoUnit.DAYS;
+                window = Duration.ofDays(7);
+            }
+            case "month" -> {
+                bucketUnit = ChronoUnit.DAYS;
+                window = Duration.ofDays(30);
+            }
+            case "year" -> {
+                bucketUnit = ChronoUnit.MONTHS;
+                window = Duration.ofDays(365);
+            }
+            default -> {
+                bucketUnit = ChronoUnit.HOURS;
+                window = Duration.ofHours(24);
+            }
+        }
 
-        Instant from = Instant.now().minus(30, ChronoUnit.DAYS);
+        Instant from = Instant.now().minus(window);
         Instant to = Instant.now();
 
         Map<UUID, String> variableCodes = new LinkedHashMap<>();
