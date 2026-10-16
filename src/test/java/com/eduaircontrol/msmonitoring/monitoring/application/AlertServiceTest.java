@@ -51,7 +51,7 @@ class AlertServiceTest extends PostgresTestBase {
     void raisesAlertWhenThresholdIsExceeded() {
         // CO2 en 1200 supera el warning (0-1000) -> CRITICAL.
         var evaluation = thresholdService.evaluate(
-                ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
                 java.time.LocalDate.now());
         assertThat(evaluation).isPresent();
 
@@ -69,7 +69,7 @@ class AlertServiceTest extends PostgresTestBase {
     void doesNotDuplicateAlertForSameMeasurement() {
         UUID measurementId = UUID.randomUUID();
         var evaluation = thresholdService.evaluate(
-                ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
                 java.time.LocalDate.now()).orElseThrow();
 
         var first = alertService.raiseIfAbsent(
@@ -87,7 +87,7 @@ class AlertServiceTest extends PostgresTestBase {
     @Test
     void listsActiveAlerts() {
         var evaluation = thresholdService.evaluate(
-                ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
                 java.time.LocalDate.now()).orElseThrow();
         alertService.raiseIfAbsent(
                 ENVIRONMENT_ID, CO2,
@@ -104,7 +104,7 @@ class AlertServiceTest extends PostgresTestBase {
     @Test
     void acknowledgesAnActiveAlert() {
         var evaluation = thresholdService.evaluate(
-                ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
                 java.time.LocalDate.now()).orElseThrow();
         var alert = alertService.raiseIfAbsent(
                 ENVIRONMENT_ID, CO2,

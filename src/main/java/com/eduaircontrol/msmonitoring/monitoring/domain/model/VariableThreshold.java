@@ -17,11 +17,14 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * Umbral ambiental por variable y tipo de ambiente (ADR-014 aceptado).
+ * Umbral ambiental por variable, con override por ambiente (enmienda a
+ * ADR-014).
  *
- * <p>Un umbral por (variable_id, environment_type_id, severity_id) en un periodo.
- * NO existe educational_environment_id: la especificacion lo rechaza
- * explicitamente. Los umbrales nunca se borran; se cierran con {@code validTo}.
+ * <p>Un umbral por (variable_id, environment_type_id, severity_id) en un
+ * periodo, o por (variable_id, educational_environment_id, severity_id) cuando
+ * el ambiente define su propio override: en ese caso el umbral del ambiente
+ * tiene prioridad sobre el del tipo. Los umbrales nunca se borran; se cierran
+ * con {@code validTo}.
  *
  * <p>Semantica de excedencia (DEC-006): una medicion excede el umbral si esta fuera
  * de [min_value, max_value]. Con INFO se guarda el rango normal y con WARNING los
@@ -45,6 +48,13 @@ public class VariableThreshold {
 
     @Column(name = "environment_type_id", nullable = false)
     private UUID environmentTypeId;
+
+    /**
+     * Override por ambiente. NULL = umbral generico del tipo de ambiente; con
+     * valor, este umbral reemplaza al del tipo para ese ambiente concreto.
+     */
+    @Column(name = "educational_environment_id")
+    private UUID educationalEnvironmentId;
 
     @Column(name = "min_value", precision = 12, scale = 4)
     private BigDecimal minValue;
