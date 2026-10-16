@@ -62,6 +62,7 @@ class AlertServiceTest extends PostgresTestBase {
 
         assertThat(alert.getId()).isNotNull();
         assertThat(alert.isActive()).isTrue();
+        assertThat(alert.getSeverityCode()).isEqualTo("CRITICAL");
     }
 
     @Test

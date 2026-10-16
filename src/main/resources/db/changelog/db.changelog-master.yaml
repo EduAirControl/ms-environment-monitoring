@@ -132,3 +132,5 @@ databaseChangeLog:
       file: db/changelog/changes/010-seed-reference.yaml
   - include:
       file: db/changelog/changes/011-relax-installation-projection-environment-type.yaml
+  - include:
+      file: db/changelog/changes/012-alert-severity-code.yaml

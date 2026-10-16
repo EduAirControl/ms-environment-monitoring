@@ -4,6 +4,7 @@ import com.eduaircontrol.msmonitoring.analysis.domain.model.PageResult;
 import com.eduaircontrol.msmonitoring.monitoring.domain.model.EnvironmentAlert;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.in.AlertUseCase;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.AlertRepository;
+import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.MeasurementRepository;
 import com.eduaircontrol.msmonitoring.shared.contract.VariableCatalogPort;
 import com.eduaircontrol.msmonitoring.shared.exception.ConflictException;
 import com.eduaircontrol.msmonitoring.shared.exception.NotFoundException;
@@ -28,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AlertService implements AlertUseCase {
 
     private final AlertRepository alertRepository;
+    private final MeasurementRepository measurementRepository;
     private final VariableCatalogPort variableCatalogPort;
     private final Clock clock;
 
@@ -45,7 +47,7 @@ public class AlertService implements AlertUseCase {
             return existing.get(0);
         }
         EnvironmentAlert alert = EnvironmentAlert.raise(
-                environmentId, variableId, thresholdId, measurementId, at);
+                environmentId, variableId, thresholdId, measurementId, severityCode, at);
         return alertRepository.save(alert);
     }
 
@@ -76,13 +78,19 @@ public class AlertService implements AlertUseCase {
         String variableCode = variableCatalogPort.findById(alert.getVariableId())
                 .map(VariableCatalogPort.VariableRef::code)
                 .orElse(alert.getVariableId().toString());
+        // La severidad real se guardo al generarse la alerta (WARNING/CRITICAL);
+        // antes se rellenaba con el estado (ACTIVE/ACKNOWLEDGED), que no es severidad.
+        java.math.BigDecimal triggeringValue =
+                measurementRepository.findById(alert.getTriggeringMeasurementId())
+                        .map(m -> m.getMeasuredValue())
+                        .orElse(null);
         return new AlertView(
                 alert.getId(),
                 alert.getEducationalEnvironmentId(),
                 alert.getVariableId(),
                 variableCode,
-                alert.isActive() ? "ACTIVE" : "ACKNOWLEDGED",
-                null,
+                alert.getSeverityCode(),
+                triggeringValue,
                 alert.getRaisedAt(),
                 alert.getAcknowledgedAt(),
                 alert.getAcknowledgedBy());

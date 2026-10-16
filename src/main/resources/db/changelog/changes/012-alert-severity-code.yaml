@@ -1,0 +1,27 @@
+databaseChangeLog:
+  - changeSet:
+      id: 012-alert-severity-code
+      author: eduaircontrol
+      comment: >
+        severity_code guarda la severidad real de la excedencia al generarse la
+        alerta (DEC-006: WARNING fuera del rango normal, CRITICAL fuera del rango
+        de advertencia).
+
+        Motivo: la severidad se calculaba al evaluar el umbral pero no se
+        persistia; AlertService.toView rellenaba severityCode con el estado
+        (ACTIVE/ACKNOWLEDGED) y los frontends esperaban el vocabulario
+        INFO/WARNING/CRITICAL, con lo que toda alerta se pintaba como "info".
+        NULL solo en alertas anteriores a este changeset.
+      changes:
+        - addColumn:
+            tableName: environment_alert
+            schemaName: environment_monitoring
+            columns:
+              - column:
+                  name: severity_code
+                  type: varchar(20)
+      rollback:
+        - dropColumn:
+            tableName: environment_alert
+            schemaName: environment_monitoring
+            columnName: severity_code
