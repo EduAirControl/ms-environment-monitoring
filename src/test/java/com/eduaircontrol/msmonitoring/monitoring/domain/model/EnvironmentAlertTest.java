@@ -15,7 +15,7 @@ class EnvironmentAlertTest {
     private EnvironmentAlert active() {
         return EnvironmentAlert.raise(
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                Instant.now());
+                "WARNING", Instant.now());
     }
 
     @Test
@@ -25,6 +25,7 @@ class EnvironmentAlertTest {
         assertThat(alert.isActive()).isTrue();
         assertThat(alert.getAcknowledgedAt()).isNull();
         assertThat(alert.getAcknowledgedBy()).isNull();
+        assertThat(alert.getSeverityCode()).isEqualTo("WARNING");
     }
 
     @Test

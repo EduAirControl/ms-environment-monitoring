@@ -47,6 +47,14 @@ public class EnvironmentAlert {
     @Column(name = "triggering_measurement_id", nullable = false)
     private UUID triggeringMeasurementId;
 
+    /**
+     * Severidad real de la excedencia al generarse la alerta (DEC-006):
+     * {@code WARNING} fuera del rango normal, {@code CRITICAL} fuera del rango de
+     * advertencia. NULL solo en alertas anteriores a esta columna.
+     */
+    @Column(name = "severity_code", length = 20)
+    private String severityCode;
+
     @Column(name = "raised_at", nullable = false)
     private Instant raisedAt;
 
@@ -70,13 +78,14 @@ public class EnvironmentAlert {
 
     public static EnvironmentAlert raise(UUID environmentId, UUID variableId,
                                          UUID thresholdId, UUID measurementId,
-                                         Instant at) {
+                                         String severityCode, Instant at) {
         return EnvironmentAlert.builder()
                 .id(UUID.randomUUID())
                 .educationalEnvironmentId(environmentId)
                 .variableId(variableId)
                 .variableThresholdId(thresholdId)
                 .triggeringMeasurementId(measurementId)
+                .severityCode(severityCode)
                 .raisedAt(at)
                 .build();
     }
