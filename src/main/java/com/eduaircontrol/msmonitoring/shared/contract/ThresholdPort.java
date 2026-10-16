@@ -18,6 +18,7 @@ public interface ThresholdPort {
     /** Umbrales de advertencia de todas las variables del ambiente. */
     List<Range> warningRanges(UUID environmentId);
 
-    record Range(UUID environmentId, UUID variableId, BigDecimal min, BigDecimal max) {
+    record Range(UUID environmentId, UUID variableId, BigDecimal min, BigDecimal max,
+                 boolean environmentScoped) {
     }
 }

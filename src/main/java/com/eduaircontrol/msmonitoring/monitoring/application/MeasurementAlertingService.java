@@ -54,7 +54,7 @@ public class MeasurementAlertingService {
             return;
         }
 
-        thresholdService.evaluate(environmentTypeId, variableId, value,
+        thresholdService.evaluate(environmentId, environmentTypeId, variableId, value,
                         measuredAt.atZone(ZoneOffset.UTC).toLocalDate())
                 .ifPresent(evaluation -> alertService.raiseIfAbsent(
                         environmentId, variableId,
