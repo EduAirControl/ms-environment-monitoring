@@ -225,13 +225,34 @@ class MonitoringControllerTest extends PostgresTestBase {
 
     /**
      * Este es el hueco que usaba el firmware: forjar el header del gateway y
-     * declararse ADMIN. La via de headers queda excluida del endpoint de ingesta.
+     * declararse ADMIN. Con JWT-only los headers no autentican nada: sin token,
+     * la peticion es 401.
      */
     @Test
     void rejectsIngestFromForgedGatewayHeaders() throws Exception {
         mockMvc.perform(post("/api/v1/measurements")
                         .header("X-User-Id", "esp32-test")
                         .header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ingestBody()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * Regresion de R-001: un token valido de usuario normal acompañado de headers
+     * forjados de ADMIN sigue sin poder ingerir. Los headers se ignoran por
+     * completo; el unico rol efectivo es el del token.
+     */
+    @Test
+    void forgedAdminHeadersDoNotElevateAUserToken() throws Exception {
+        String userToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                UUID.randomUUID(), "user@test.com", "USER");
+
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", "Bearer " + userToken)
+                        .header("X-User-Id", UUID.randomUUID().toString())
+                        .header("X-User-Role", "ADMIN")
+                        .header("X-User-Roles", "ADMIN,SUPER_ADMIN")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(ingestBody()))
                 .andExpect(status().isForbidden());
@@ -378,8 +399,8 @@ class MonitoringControllerTest extends PostgresTestBase {
 
     /**
      * Este era el hueco abierto: los headers del gateway se aceptaban sin mas y
-     * cualquiera en la red podia leerlo todo declarandose ADMIN. Ahora todos los
-     * endpoints de la API exigen un token real.
+     * cualquiera en la red podia leerlo todo declarandose ADMIN. Con JWT-only
+     * ningun endpoint acepta headers como identidad: sin token, 401.
      */
     @Test
     void rejectsForgedGatewayHeadersOnEveryEndpoint() throws Exception {
@@ -397,13 +418,13 @@ class MonitoringControllerTest extends PostgresTestBase {
             mockMvc.perform(get(path)
                             .header("X-User-Id", "00000000-0000-4000-8000-000000000001")
                             .header("X-User-Role", "ADMIN"))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isUnauthorized());
         }
 
         mockMvc.perform(post("/api/v1/alerts/" + UUID.randomUUID() + "/acknowledge")
                         .header("X-User-Id", "00000000-0000-4000-8000-000000000001")
                         .header("X-User-Role", "ADMIN"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     /** Con un token real (aunque sea de usuario normal) las lecturas siguen abiertas. */
