@@ -12,8 +12,9 @@ import org.springframework.stereotype.Component;
 /**
  * Identidad del solicitante.
  *
- * <p>Detrás del gateway (BFF) el id llega en el header {@code X-User-Id} y se publica
- * como nombre del {@link Authentication}. En acceso directo el id viaja dentro del JWT.
+ * <p>Con autenticacion JWT-only (R-001) el nombre del {@link Authentication} es
+ * el correo del token, o el userId cuando el token no trae email (dispositivos).
+ * El id exacto se resuelve desde los claims del token guardado como credencial.
  */
 @Component
 @RequiredArgsConstructor

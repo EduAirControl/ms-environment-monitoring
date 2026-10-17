@@ -21,18 +21,15 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Todo este controller exige un <b>token real</b>: la via de headers del gateway
- * queda excluida porque cualquiera que alcance el puerto puede forjar
- * {@code X-User-Id} y {@code X-User-Role}. El gateway reenvia el
- * {@code Authorization} del cliente (o el de la sesion BFF), asi que las
- * peticiones legitimas llegan igual.
- */
-@PreAuthorize("!hasRole('HEADER')")
-/**
  * API de mediciones (HU-MON-001 … HU-MON-004).
  *
  * <p>La ingesta principal llega por RabbitMQ desde ms-sensor-management. Este
  * endpoint HTTP es la alternativa para sensores con capacidad HTTPS (ADR-004).
+ *
+ * <p>Todo el controller exige JWT real (R-001): la via de headers del gateway
+ * no se acepta como identidad. El gateway reenvia el {@code Authorization}
+ * del cliente (o el de la sesion BFF), asi que las peticiones legitimas
+ * llegan igual.
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -49,12 +46,9 @@ public class MeasurementController {
      *
      * <p>Exige un <b>token real</b>: el rol {@code DEVICE} es el de un dispositivo
      * provisionado, {@code ADMIN} el de un operador y {@code SUPER_ADMIN} el del gestor
-     * global, que cuenta como administrador. La via de headers del gateway
-     * queda excluida porque cualquiera que alcance el puerto puede forjar
-     * {@code X-User-Role: ADMIN} y ese era exactamente el hueco que usaba el
-     * firmware.
+     * global, que cuenta como administrador.
      */
-    @PreAuthorize("hasAnyRole('DEVICE','ADMIN','SUPER_ADMIN') and !hasRole('HEADER')")
+    @PreAuthorize("hasAnyRole('DEVICE','ADMIN','SUPER_ADMIN')")
     @PostMapping("/measurements")
     @ResponseStatus(HttpStatus.CREATED)
     public MeasurementIdResponse ingest(@Valid @RequestBody IngestRequest request) {

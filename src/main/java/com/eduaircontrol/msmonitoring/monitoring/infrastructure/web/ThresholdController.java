@@ -21,7 +21,6 @@ import org.springframework.web.bind.annotation.RestController;
  * usuario autenticado; escritura solo ADMIN/SUPER_ADMIN (el rol llega en el
  * token JWT que reenvia el gateway).
  */
-@PreAuthorize("!hasRole('HEADER')")
 @RestController
 @RequestMapping("/api/v1/environments/{environmentId}/thresholds")
 @RequiredArgsConstructor
