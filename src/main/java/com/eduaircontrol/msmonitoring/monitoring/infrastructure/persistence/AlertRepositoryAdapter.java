@@ -51,4 +51,10 @@ public class AlertRepositoryAdapter implements AlertRepository {
     public List<EnvironmentAlert> findActiveByMeasurement(UUID measurementId) {
         return alerts.findByTriggeringMeasurementIdAndAcknowledgedAtIsNull(measurementId);
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EnvironmentAlert> findOpenByEnvironmentAndVariable(UUID environmentId, UUID variableId) {
+        return alerts.findOpenByEnvironmentAndVariable(environmentId, variableId);
+    }
 }

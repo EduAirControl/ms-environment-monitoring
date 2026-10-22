@@ -64,8 +64,23 @@ public class EnvironmentAlert {
     @Column(name = "acknowledged_by")
     private UUID acknowledgedBy;
 
+    /**
+     * Soft delete (DELETE /alerts/{id}): la alerta deja de listarse pero sigue
+     * siendo traza del hecho que la genero (referencias intactas).
+     */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     public boolean isActive() {
         return acknowledgedAt == null;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
+
+    public void softDelete(Instant at) {
+        this.deletedAt = at;
     }
 
     public void acknowledge(UUID userId, Instant at) {

@@ -20,4 +20,7 @@ public interface AlertRepository {
                                         int page, int limit);
 
     List<EnvironmentAlert> findActiveByMeasurement(UUID measurementId);
+
+    /** Alertas no borradas de un ambiente+variable (vigentes, reconozcan o no). */
+    List<EnvironmentAlert> findOpenByEnvironmentAndVariable(UUID environmentId, UUID variableId);
 }

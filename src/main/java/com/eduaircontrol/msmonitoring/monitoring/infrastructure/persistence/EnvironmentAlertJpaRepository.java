@@ -20,6 +20,7 @@ public interface EnvironmentAlertJpaRepository extends JpaRepository<Environment
                    or (:active = false and a.acknowledgedAt is not null))
               and (cast(:from as timestamp) is null or a.raisedAt >= :from)
               and (cast(:to as timestamp) is null or a.raisedAt < :to)
+              and a.deletedAt is null
             order by a.raisedAt desc
             """)
     Page<EnvironmentAlert> search(@Param("environmentId") UUID environmentId,
@@ -30,4 +31,16 @@ public interface EnvironmentAlertJpaRepository extends JpaRepository<Environment
 
     List<EnvironmentAlert> findByTriggeringMeasurementIdAndAcknowledgedAtIsNull(
             UUID triggeringMeasurementId);
+
+    /** Alertas vigentes (no borradas) de un ambiente+variable, de cualquier estado. */
+    @Query("""
+            select a from EnvironmentAlert a
+            where a.educationalEnvironmentId = :environmentId
+              and a.variableId = :variableId
+              and a.deletedAt is null
+            order by a.raisedAt desc
+            """)
+    List<EnvironmentAlert> findOpenByEnvironmentAndVariable(
+            @Param("environmentId") UUID environmentId,
+            @Param("variableId") UUID variableId);
 }

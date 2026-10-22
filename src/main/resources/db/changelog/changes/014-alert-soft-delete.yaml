@@ -1,0 +1,22 @@
+databaseChangeLog:
+  - changeSet:
+      id: 014-alert-soft-delete
+      author: eduaircontrol
+      comment: >
+        deleted_at implementa el soft delete de alertas (DELETE /api/v1/alerts/{id}).
+        La alerta deja de aparecer en GET /alerts pero sigue siendo traza del hecho
+        que la genero: no se borra la fila ni sus referencias al umbral ni a la
+        medicion. NULL significa que no fue eliminada.
+      changes:
+        - addColumn:
+            tableName: environment_alert
+            schemaName: environment_monitoring
+            columns:
+              - column:
+                  name: deleted_at
+                  type: timestamptz
+      rollback:
+        - dropColumn:
+            tableName: environment_alert
+            schemaName: environment_monitoring
+            columnName: deleted_at

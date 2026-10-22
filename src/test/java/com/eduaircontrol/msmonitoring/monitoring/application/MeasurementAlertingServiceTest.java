@@ -63,8 +63,10 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
     }
 
     private long alertCount() {
+        // Cuenta las vigentes: el soft delete conserva la fila con deleted_at.
         Long n = jdbc.queryForObject(
-                "select count(*) from environment_monitoring.environment_alert", Long.class);
+                "select count(*) from environment_monitoring.environment_alert"
+                        + " where deleted_at is null", Long.class);
         return n == null ? 0 : n;
     }
 
@@ -96,6 +98,54 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
                 new BigDecimal("1200"), Instant.now());
 
         assertThat(alertCount()).isEqualTo(1);
+    }
+
+    @Test
+    void keepsASingleAlertWhileTheConditionPersists() {
+        // El ESP32 envia cada 10 s: cinco mediciones fuera de rango seguidas
+        // deben dejar UNA sola alerta en el panel, no cinco.
+        for (int i = 0; i < 5; i++) {
+            measurementService.record(new MeasurementUseCase.RecordCommand(
+                    INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()), null);
+        }
+
+        assertThat(alertCount()).isEqualTo(1);
+    }
+
+    @Test
+    void resolvesTheAlertWhenTheValueReturnsToNormal() {
+        measurementService.record(new MeasurementUseCase.RecordCommand(
+                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()), null);
+        assertThat(alertCount()).isEqualTo(1);
+
+        measurementService.record(new MeasurementUseCase.RecordCommand(
+                INSTALLATION_ID, CO2, new BigDecimal("400"), Instant.now()), null);
+
+        assertThat(alertCount()).isZero();
+    }
+
+    @Test
+    void raisesANewAlertOnANewExcedenceAfterTheCycleResolved() {
+        measurementService.record(new MeasurementUseCase.RecordCommand(
+                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()), null);
+        UUID firstId = jdbc.queryForObject(
+                "select environment_alert_id from environment_monitoring.environment_alert"
+                        + " where deleted_at is null",
+                UUID.class);
+
+        measurementService.record(new MeasurementUseCase.RecordCommand(
+                INSTALLATION_ID, CO2, new BigDecimal("400"), Instant.now()), null);
+        assertThat(alertCount()).isZero();
+
+        measurementService.record(new MeasurementUseCase.RecordCommand(
+                INSTALLATION_ID, CO2, new BigDecimal("1200"), Instant.now()), null);
+        UUID secondId = jdbc.queryForObject(
+                "select environment_alert_id from environment_monitoring.environment_alert"
+                        + " where deleted_at is null",
+                UUID.class);
+
+        assertThat(alertCount()).isEqualTo(1);
+        assertThat(secondId).isNotEqualTo(firstId); // es otro evento
     }
 
     /**

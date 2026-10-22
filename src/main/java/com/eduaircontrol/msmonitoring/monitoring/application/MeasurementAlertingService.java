@@ -56,10 +56,15 @@ public class MeasurementAlertingService {
 
         thresholdService.evaluate(environmentId, environmentTypeId, variableId, value,
                         measuredAt.atZone(ZoneOffset.UTC).toLocalDate())
-                .ifPresent(evaluation -> alertService.raiseIfAbsent(
-                        environmentId, variableId,
-                        evaluation.thresholdId(), measurementId,
-                        evaluation.severityCode(), measuredAt));
+                .ifPresentOrElse(
+                        evaluation -> alertService.raiseIfAbsent(
+                                environmentId, variableId,
+                                evaluation.thresholdId(), measurementId,
+                                evaluation.severityCode(), measuredAt),
+                        // Valor en rango normal: cierra la alerta vigente del par, si
+                        // la hay. Asi una excedencia no vuelve a avisar tras ser vista
+                        // y cada ciclo roto->ok->roto si es un evento nuevo.
+                        () -> alertService.resolveOpen(environmentId, variableId));
     }
 
     /**

@@ -6,6 +6,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,5 +48,15 @@ public class AlertController {
     public AlertUseCase.AlertView acknowledge(@PathVariable UUID id) {
         UUID userId = userIdentityPort.currentUserId().orElse(null);
         return alertUseCase.acknowledge(id, userId, Instant.now());
+    }
+
+    /**
+     * Elimina una alerta (soft delete): deja de listarse pero la traza se
+     * conserva. Idempotente: repetir el DELETE no falla.
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+        alertUseCase.delete(id, Instant.now());
+        return ResponseEntity.noContent().build();
     }
 }
