@@ -99,6 +99,11 @@ public class DashboardController {
         ChronoUnit bucketUnit;
         Duration window;
         switch (period.toLowerCase()) {
+            case "hour" -> {
+                // Tiempo real: 60 buckets de un minuto; la serie se mueve sola.
+                bucketUnit = ChronoUnit.MINUTES;
+                window = Duration.ofMinutes(60);
+            }
             case "week" -> {
                 bucketUnit = ChronoUnit.DAYS;
                 window = Duration.ofDays(7);

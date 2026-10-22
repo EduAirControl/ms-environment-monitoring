@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
- * API del analisis historico (contrato: 07-api/contracts/openapi/ms-environment_monitoring.yaml).
+ * API del analisis historico (contrato: 07-api/contracts/openapi/ms-environment-monitoring.yaml).
  *
  * <p>Cumple HU-ANA-001 a HU-ANA-004: analizar por dia, semana, mes y ano.
  *

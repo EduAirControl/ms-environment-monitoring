@@ -136,3 +136,5 @@ databaseChangeLog:
       file: db/changelog/changes/012-alert-severity-code.yaml
   - include:
       file: db/changelog/changes/013-variable-threshold-per-environment.yaml
+  - include:
+      file: db/changelog/changes/014-alert-soft-delete.yaml
