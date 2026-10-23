@@ -1,5 +1,6 @@
 package com.eduaircontrol.msmonitoring.monitoring.infrastructure.web;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -143,6 +144,57 @@ class MonitoringControllerTest extends PostgresTestBase {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    /** Siembra una alerta y devuelve su id. */
+    private UUID seedAlert() {
+        UUID alertId = UUID.randomUUID();
+        jdbc.update("""
+                insert into environment_monitoring.environment_alert
+                    (environment_alert_id, educational_environment_id, variable_id,
+                     variable_threshold_id, triggering_measurement_id, raised_at, severity_code)
+                values (?, ?, ?, ?, ?, now(), 'WARNING')
+                """, alertId, ENVIRONMENT_ID, TEMPERATURE, UUID.randomUUID(), UUID.randomUUID());
+        return alertId;
+    }
+
+    /**
+     * El panel web borra la notificacion con DELETE /api/v1/alerts/{id} (H-05).
+     * Debe responder 204 y la alerta no puede reaparecer en el listado.
+     */
+    @Test
+    void deletesAlertViaHttp() throws Exception {
+        UUID alertId = seedAlert();
+
+        mockMvc.perform(delete("/api/v1/alerts/{id}", alertId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    /** Borrar dos veces no falla (idempotente): el segundo DELETE tambien es 204. */
+    @Test
+    void deletingAnAlertTwiceIsIdempotent() throws Exception {
+        UUID alertId = seedAlert();
+
+        mockMvc.perform(delete("/api/v1/alerts/{id}", alertId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/v1/alerts/{id}", alertId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+    }
+
+    /** Un id inexistente no es un no-op silencioso: responde 404. */
+    @Test
+    void deletingAnUnknownAlertReturnsNotFound() throws Exception {
+        mockMvc.perform(delete("/api/v1/alerts/{id}", UUID.randomUUID())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
     }
 
     /**
