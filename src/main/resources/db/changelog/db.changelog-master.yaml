@@ -138,3 +138,5 @@ databaseChangeLog:
       file: db/changelog/changes/013-variable-threshold-per-environment.yaml
   - include:
       file: db/changelog/changes/014-alert-soft-delete.yaml
+  - include:
+      file: db/changelog/changes/015-educational-environment-institution.yaml

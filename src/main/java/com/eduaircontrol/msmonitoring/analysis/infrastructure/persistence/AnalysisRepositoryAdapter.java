@@ -7,6 +7,7 @@ import com.eduaircontrol.msmonitoring.analysis.domain.model.EnvironmentalAnalysi
 import com.eduaircontrol.msmonitoring.analysis.domain.model.PageResult;
 import com.eduaircontrol.msmonitoring.analysis.domain.port.out.AnalysisRepository;
 import com.eduaircontrol.msmonitoring.analysis.domain.port.out.AnalysisStatusRepository;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -83,7 +84,8 @@ public class AnalysisRepositoryAdapter implements AnalysisRepository {
     @Override
     @Transactional(readOnly = true)
     public long count() {
-        return analyses.count();
+        UUID institutionId = TenantContext.institutionId();
+        return institutionId == null ? analyses.count() : analyses.countByInstitution(institutionId);
     }
 
     @Repository

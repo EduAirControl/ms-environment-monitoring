@@ -26,19 +26,22 @@ public class ClassroomEnvironmentDao {
      */
     @Transactional
     public void upsert(UUID environmentId, String code, String name, UUID campusId,
-                       UUID environmentTypeId, Integer floor) {
+                       UUID institutionId, UUID environmentTypeId, Integer floor) {
         String sql = """
             INSERT INTO environment_monitoring.educational_environment
-                (educational_environment_id, code, name, campus_id, environment_type_id, floor)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (educational_environment_id, code, name, campus_id, institution_id,
+                 environment_type_id, floor)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (educational_environment_id) DO UPDATE SET
                 code = EXCLUDED.code,
                 name = EXCLUDED.name,
                 campus_id = EXCLUDED.campus_id,
+                institution_id = EXCLUDED.institution_id,
                 environment_type_id = EXCLUDED.environment_type_id,
                 floor = EXCLUDED.floor
             """;
-        jdbc.update(sql, environmentId, code, name, campusId, environmentTypeId, floor);
+        jdbc.update(sql, environmentId, code, name, campusId, institutionId,
+                environmentTypeId, floor);
     }
 
     /**

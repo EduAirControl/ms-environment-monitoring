@@ -1,0 +1,22 @@
+databaseChangeLog:
+  - changeSet:
+      id: 015-educational-environment-institution
+      author: eduaircontrol
+      comment: >
+        institution_id replica la institución del ambiente (ADR-016) para aislar
+        las lecturas de dashboard, mediciones y alertas por institución. La trae el
+        evento educational_environment.* de ms-classroom-management. NULL solo en
+        filas anteriores a este changeset (sin aislamiento).
+      changes:
+        - addColumn:
+            tableName: educational_environment
+            schemaName: environment_monitoring
+            columns:
+              - column:
+                  name: institution_id
+                  type: uuid
+      rollback:
+        - dropColumn:
+            tableName: educational_environment
+            schemaName: environment_monitoring
+            columnName: institution_id

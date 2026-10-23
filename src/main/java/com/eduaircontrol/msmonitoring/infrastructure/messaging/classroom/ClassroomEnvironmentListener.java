@@ -62,6 +62,7 @@ public class ClassroomEnvironmentListener {
                         payload.code(),
                         payload.name(),
                         payload.campusId(),
+                        payload.institutionId(),
                         payload.environmentTypeId(),
                         payload.floor());
                 log.debug("[CLASSROOM] Ambiente {} ({}) sincronizado",

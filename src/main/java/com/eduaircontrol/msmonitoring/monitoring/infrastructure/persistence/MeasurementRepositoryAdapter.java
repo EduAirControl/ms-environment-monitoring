@@ -3,6 +3,7 @@ package com.eduaircontrol.msmonitoring.monitoring.infrastructure.persistence;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.PageResult;
 import com.eduaircontrol.msmonitoring.monitoring.domain.model.EnvironmentMeasurement;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.MeasurementRepository;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantContext;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -45,13 +46,13 @@ public class MeasurementRepositoryAdapter implements MeasurementRepository {
     @Override
     @Transactional(readOnly = true)
     public List<EnvironmentMeasurement> latestByEnvironment(UUID environmentId) {
-        return measurements.latestByEnvironment(environmentId);
+        return measurements.latestByEnvironment(environmentId, TenantContext.institutionId());
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<EnvironmentCurrent> latestAll() {
-        return measurements.latestAll().stream()
+        return measurements.latestAll(TenantContext.institutionId()).stream()
                 .map(row -> new EnvironmentCurrent(
                         row.getEducationalEnvironmentId(),
                         row.getVariableId(),
@@ -64,7 +65,8 @@ public class MeasurementRepositoryAdapter implements MeasurementRepository {
     @Transactional(readOnly = true)
     public PageResult<EnvironmentMeasurement> history(UUID environmentId, UUID variableId,
                                                       Instant from, Instant to, int page, int limit) {
-        Page<EnvironmentMeasurement> result = measurements.history(environmentId, variableId, from, to,
+        Page<EnvironmentMeasurement> result = measurements.history(environmentId,
+                TenantContext.institutionId(), variableId, from, to,
                 PageRequest.of(Math.max(page, 1) - 1, Math.min(Math.max(limit, 1), 10000)));
         return new PageResult<>(result.getContent(), result.getTotalElements(), page, limit);
     }
@@ -72,6 +74,7 @@ public class MeasurementRepositoryAdapter implements MeasurementRepository {
     @Override
     @Transactional(readOnly = true)
     public long count() {
-        return measurements.count();
+        UUID institutionId = TenantContext.institutionId();
+        return institutionId == null ? measurements.count() : measurements.countByInstitution(institutionId);
     }
 }
