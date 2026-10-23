@@ -3,6 +3,7 @@ package com.eduaircontrol.msmonitoring.monitoring.infrastructure.persistence;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.PageResult;
 import com.eduaircontrol.msmonitoring.monitoring.domain.model.EnvironmentAlert;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.AlertRepository;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantContext;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -10,7 +11,6 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,10 +39,9 @@ public class AlertRepositoryAdapter implements AlertRepository {
     @Transactional(readOnly = true)
     public PageResult<EnvironmentAlert> search(UUID environmentId, Boolean active,
                                                Instant from, Instant to, int page, int limit) {
-        Page<EnvironmentAlert> result = alerts.search(environmentId, active, from, to,
-                PageRequest.of(Math.max(page, 1) - 1,
-                        Math.min(Math.max(limit, 1), 100),
-                        Sort.by(Sort.Direction.DESC, "raisedAt")));
+        Page<EnvironmentAlert> result = alerts.search(environmentId, TenantContext.institutionId(),
+                active, from, to,
+                PageRequest.of(Math.max(page, 1) - 1, Math.min(Math.max(limit, 1), 100)));
         return new PageResult<>(result.getContent(), result.getTotalElements(), page, limit);
     }
 

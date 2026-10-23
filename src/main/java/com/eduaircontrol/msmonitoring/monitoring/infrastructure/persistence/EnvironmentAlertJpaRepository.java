@@ -12,18 +12,44 @@ import org.springframework.data.repository.query.Param;
 
 public interface EnvironmentAlertJpaRepository extends JpaRepository<EnvironmentAlert, UUID> {
 
-    @Query("""
-            select a from EnvironmentAlert a
-            where (:environmentId is null or a.educationalEnvironmentId = :environmentId)
-              and (:active is null
-                   or (:active = true and a.acknowledgedAt is null)
-                   or (:active = false and a.acknowledgedAt is not null))
-              and (cast(:from as timestamp) is null or a.raisedAt >= :from)
-              and (cast(:to as timestamp) is null or a.raisedAt < :to)
-              and a.deletedAt is null
-            order by a.raisedAt desc
-            """)
+    @Query(value = """
+            select a.* from environment_monitoring.environment_alert a
+            join environment_monitoring.educational_environment e
+                on e.educational_environment_id = a.educational_environment_id
+            where (cast(:environmentId as uuid) is null
+                   or a.educational_environment_id = cast(:environmentId as uuid))
+              and (cast(:institutionId as uuid) is null
+                   or e.institution_id = cast(:institutionId as uuid))
+              and (cast(:active as boolean) is null
+                   or (cast(:active as boolean) = true and a.acknowledged_at is null)
+                   or (cast(:active as boolean) = false and a.acknowledged_at is not null))
+              and (cast(:from as timestamptz) is null
+                   or a.raised_at >= cast(:from as timestamptz))
+              and (cast(:to as timestamptz) is null
+                   or a.raised_at < cast(:to as timestamptz))
+              and a.deleted_at is null
+            order by a.raised_at desc
+            """,
+            countQuery = """
+            select count(*) from environment_monitoring.environment_alert a
+            join environment_monitoring.educational_environment e
+                on e.educational_environment_id = a.educational_environment_id
+            where (cast(:environmentId as uuid) is null
+                   or a.educational_environment_id = cast(:environmentId as uuid))
+              and (cast(:institutionId as uuid) is null
+                   or e.institution_id = cast(:institutionId as uuid))
+              and (cast(:active as boolean) is null
+                   or (cast(:active as boolean) = true and a.acknowledged_at is null)
+                   or (cast(:active as boolean) = false and a.acknowledged_at is not null))
+              and (cast(:from as timestamptz) is null
+                   or a.raised_at >= cast(:from as timestamptz))
+              and (cast(:to as timestamptz) is null
+                   or a.raised_at < cast(:to as timestamptz))
+              and a.deleted_at is null
+            """,
+            nativeQuery = true)
     Page<EnvironmentAlert> search(@Param("environmentId") UUID environmentId,
+                                  @Param("institutionId") UUID institutionId,
                                   @Param("active") Boolean active,
                                   @Param("from") Instant from,
                                   @Param("to") Instant to,

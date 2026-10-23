@@ -38,6 +38,7 @@ public record ClassroomEnvironmentEvent(
             String code,
             String name,
             UUID campusId,
+            UUID institutionId,
             UUID environmentTypeId,
             Integer floor,
             String status) {

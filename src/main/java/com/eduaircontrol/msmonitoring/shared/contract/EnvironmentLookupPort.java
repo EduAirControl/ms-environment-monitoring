@@ -17,6 +17,12 @@ public interface EnvironmentLookupPort {
 
     Optional<EnvironmentInfo> findById(UUID environmentId);
 
+    /**
+     * Catálogo de ambientes visible para el solicitante.
+     *
+     * <p>Si el token trae institución (ADR-016) solo devuelve los ambientes de esa
+     * institución; en contextos de sistema (sin petición o sin claim) devuelve todos.
+     */
     List<EnvironmentInfo> findAll();
 
     Optional<EnvironmentInfo> findByCode(String code);
@@ -26,6 +32,7 @@ public interface EnvironmentLookupPort {
             String code,
             String name,
             UUID campusId,
+            UUID institutionId,
             UUID environmentTypeId,
             Integer floor) {
     }
