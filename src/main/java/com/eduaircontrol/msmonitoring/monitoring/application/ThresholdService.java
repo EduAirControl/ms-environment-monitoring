@@ -12,10 +12,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Evaluacion de umbrales (ADR-014, DEC-006).
+ * Evaluacion de umbrales (ADR-014 enmendado: override por ambiente).
  *
- * <p>Resuelve el umbral activo por (variable_id, environment_type_id, severity_id)
- * y determina si una medicion lo excede. La semantica es:
+ * <p>Resuelve el umbral activo por (variable_id, severity_id) priorizando el
+ * override del ambiente ({@code educational_environment_id}) y, si no existe,
+ * el generico del tipo de ambiente. La semantica es:
  * <ul>
  *   <li>Dentro del rango INFO (normal) → sin alerta.</li>
  *   <li>Fuera de INFO pero dentro de WARNING → alerta WARNING.</li>
@@ -33,27 +34,32 @@ public class ThresholdService {
      * dentro del rango normal.
      */
     @Transactional(readOnly = true)
-    public Optional<Evaluation> evaluate(UUID environmentTypeId, UUID variableId,
-                                         BigDecimal value, LocalDate date) {
+    public Optional<Evaluation> evaluate(UUID environmentId, UUID environmentTypeId,
+                                         UUID variableId, BigDecimal value, LocalDate date) {
         if (value == null) {
             return Optional.empty();
         }
 
         List<ThresholdRow> thresholds = jdbc.query("""
-                select t.variable_threshold_id, t.min_value, t.max_value, s.code as severity
+                select t.variable_threshold_id, t.min_value, t.max_value,
+                       s.code as severity, t.educational_environment_id
                 from environment_monitoring.variable_threshold t
                 join environment_monitoring.severity s on s.severity_id = t.severity_id
                 where (t.valid_to is null or t.valid_to > ?)
                   and t.valid_from <= ?
                   and t.variable_id = ?
-                  and t.environment_type_id = ?
+                  and (t.environment_type_id = ?
+                       or (t.educational_environment_id is not null
+                           and t.educational_environment_id = ?))
                 """, (rs, rowNum) -> new ThresholdRow(
                 rs.getObject("variable_threshold_id", UUID.class),
                 rs.getBigDecimal("min_value"),
                 rs.getBigDecimal("max_value"),
-                rs.getString("severity")),
-                date, date, variableId, environmentTypeId);
+                rs.getString("severity"),
+                rs.getObject("educational_environment_id", UUID.class) != null),
+                date, date, variableId, environmentTypeId, environmentId);
 
+        // El override del ambiente gana sobre el umbral del tipo.
         ThresholdRow info = bySeverity(thresholds, "INFO").orElse(null);
         ThresholdRow warning = bySeverity(thresholds, "WARNING").orElse(null);
 
@@ -75,7 +81,11 @@ public class ThresholdService {
     }
 
     private Optional<ThresholdRow> bySeverity(List<ThresholdRow> rows, String severity) {
-        return rows.stream().filter(row -> severity.equals(row.severity())).findFirst();
+        return rows.stream()
+                .filter(row -> severity.equals(row.severity()))
+                // Primera prioridad: override del ambiente; si no, umbral del tipo.
+                .sorted((a, b) -> Boolean.compare(b.environmentScoped(), a.environmentScoped()))
+                .findFirst();
     }
 
     private boolean inside(BigDecimal value, ThresholdRow threshold) {
@@ -88,6 +98,7 @@ public class ThresholdService {
     public record Evaluation(UUID thresholdId, String severityCode, BigDecimal value) {
     }
 
-    private record ThresholdRow(UUID id, BigDecimal min, BigDecimal max, String severity) {
+    private record ThresholdRow(UUID id, BigDecimal min, BigDecimal max, String severity,
+                                boolean environmentScoped) {
     }
 }

@@ -1,6 +1,8 @@
 package com.eduaircontrol.msmonitoring.shared.web;
 
 import com.eduaircontrol.msmonitoring.shared.exception.ConflictException;
+import com.eduaircontrol.msmonitoring.shared.exception.ForbiddenException;
+import com.eduaircontrol.msmonitoring.shared.exception.GoneException;
 import com.eduaircontrol.msmonitoring.shared.exception.NotFoundException;
 import com.eduaircontrol.msmonitoring.shared.exception.ValidationException;
 import java.util.HashMap;
@@ -12,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -45,6 +48,18 @@ public class GlobalExceptionHandler {
         return body(HttpStatus.CONFLICT.value(), ex.getMessage());
     }
 
+    /** Instalacion cerrada o purgada: existe en el historial pero ya no recibe datos. */
+    @ExceptionHandler(GoneException.class)
+    public ResponseEntity<Map<String, Object>> handleGone(GoneException ex) {
+        return body(HttpStatus.GONE.value(), ex.getMessage());
+    }
+
+    /** Instalacion ajena: el token de dispositivo no es el dueno de esa instalacion. */
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<Map<String, Object>> handleForbidden(ForbiddenException ex) {
+        return body(HttpStatus.FORBIDDEN.value(), ex.getMessage());
+    }
+
     @ExceptionHandler(ValidationException.class)
     public ResponseEntity<Map<String, Object>> handleDomainValidation(ValidationException ex) {
         return body(HttpStatus.BAD_REQUEST.value(), ex.getMessage());
@@ -62,6 +77,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
         return body(HttpStatus.BAD_REQUEST.value(), ex.getMessage());
+    }
+
+    /** Falta un parametro obligatorio: error del cliente, no del servidor. */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingParameter(
+            MissingServletRequestParameterException ex) {
+        return body(HttpStatus.BAD_REQUEST.value(),
+                "Falta el parametro: " + ex.getParameterName());
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class,

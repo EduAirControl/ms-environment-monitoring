@@ -6,6 +6,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,6 +17,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * API de alertas.
+ *
+ * <p>Exige JWT real (R-001): la via de headers del gateway no se acepta como
+ * identidad. El gateway reenvia el {@code Authorization} del cliente (o el de
+ * la sesion BFF), asi que las peticiones legitimas llegan igual.
  */
 @RestController
 @RequestMapping("/api/v1/alerts")
@@ -42,5 +48,15 @@ public class AlertController {
     public AlertUseCase.AlertView acknowledge(@PathVariable UUID id) {
         UUID userId = userIdentityPort.currentUserId().orElse(null);
         return alertUseCase.acknowledge(id, userId, Instant.now());
+    }
+
+    /**
+     * Elimina una alerta (soft delete): deja de listarse pero la traza se
+     * conserva. Idempotente: repetir el DELETE no falla.
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+        alertUseCase.delete(id, Instant.now());
+        return ResponseEntity.noContent().build();
     }
 }

@@ -1,14 +1,16 @@
 package com.eduaircontrol.msmonitoring.monitoring.infrastructure.persistence;
 
+import com.eduaircontrol.msmonitoring.analysis.domain.model.PageResult;
 import com.eduaircontrol.msmonitoring.monitoring.domain.model.EnvironmentMeasurement;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.MeasurementRepository;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantContext;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,13 +46,35 @@ public class MeasurementRepositoryAdapter implements MeasurementRepository {
     @Override
     @Transactional(readOnly = true)
     public List<EnvironmentMeasurement> latestByEnvironment(UUID environmentId) {
-        return measurements.latestByEnvironment(environmentId);
+        return measurements.latestByEnvironment(environmentId, TenantContext.institutionId());
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<EnvironmentMeasurement> history(UUID environmentId, UUID variableId,
-                                                Instant from, Instant to, Pageable pageable) {
-        return measurements.history(environmentId, variableId, from, to, pageable);
+    public List<EnvironmentCurrent> latestAll() {
+        return measurements.latestAll(TenantContext.institutionId()).stream()
+                .map(row -> new EnvironmentCurrent(
+                        row.getEducationalEnvironmentId(),
+                        row.getVariableId(),
+                        row.getMeasuredValue(),
+                        row.getMeasuredAt()))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResult<EnvironmentMeasurement> history(UUID environmentId, UUID variableId,
+                                                      Instant from, Instant to, int page, int limit) {
+        Page<EnvironmentMeasurement> result = measurements.history(environmentId,
+                TenantContext.institutionId(), variableId, from, to,
+                PageRequest.of(Math.max(page, 1) - 1, Math.min(Math.max(limit, 1), 10000)));
+        return new PageResult<>(result.getContent(), result.getTotalElements(), page, limit);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long count() {
+        UUID institutionId = TenantContext.institutionId();
+        return institutionId == null ? measurements.count() : measurements.countByInstitution(institutionId);
     }
 }

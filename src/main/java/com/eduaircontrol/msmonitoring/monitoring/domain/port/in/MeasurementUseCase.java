@@ -10,14 +10,33 @@ import java.util.UUID;
  */
 public interface MeasurementUseCase {
 
-    /** Persiste una medicion aceptada y devuelve su id. */
-    UUID record(RecordCommand command);
+    /**
+     * Persiste una medicion aceptada y devuelve su id.
+     *
+     * @param callerSensorId sensor del que viene la medicion cuando quien llama es
+     *        un dispositivo ({@code roles:["DEVICE"]}); {@code null} cuando es un
+     *        operador humano, que puede escribir en cualquier instalacion. Con
+     *        {@code null} no se exige pertenencia; con un valor, la instalacion del
+     *        comando tiene que ser de ese sensor.
+     */
+    UUID record(RecordCommand command, UUID callerSensorId);
 
     /** Ultimos valores por variable de un ambiente (HU-MON-003). */
     List<CurrentValue> currentValues(UUID environmentId);
 
+    /**
+     * Ultima medicion por (ambiente, variable) de todos los ambientes.
+     *
+     * <p>Es lo que consume el panel web: sin esto, pintar el ranking obligaria a
+     * una consulta por ambiente.
+     */
+    List<EnvironmentCurrentValue> currentValuesForAll();
+
     /** Historial paginado por variable y ventana (HU-MON-004). */
     List<MeasurementView> history(HistoryQuery query);
+
+    /** Total de mediciones registradas. */
+    long count();
 
     record RecordCommand(
             UUID sensorInstallationId,
@@ -27,6 +46,14 @@ public interface MeasurementUseCase {
     }
 
     record CurrentValue(
+            UUID variableId,
+            String variableCode,
+            BigDecimal value,
+            Instant measuredAt) {
+    }
+
+    record EnvironmentCurrentValue(
+            UUID environmentId,
             UUID variableId,
             String variableCode,
             BigDecimal value,

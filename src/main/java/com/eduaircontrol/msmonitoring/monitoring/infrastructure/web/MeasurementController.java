@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,24 +25,88 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>La ingesta principal llega por RabbitMQ desde ms-sensor-management. Este
  * endpoint HTTP es la alternativa para sensores con capacidad HTTPS (ADR-004).
+ *
+ * <p>Todo el controller exige JWT real (R-001): la via de headers del gateway
+ * no se acepta como identidad. El gateway reenvia el {@code Authorization}
+ * del cliente (o el de la sesion BFF), asi que las peticiones legitimas
+ * llegan igual.
  */
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class MeasurementController {
 
-    private final MeasurementUseCase measurementUseCase;
+    private static final String DEVICE_ROLE = "DEVICE";
 
-    /** Ingesta HTTP alternativa a MQTT (HU-MON-001). Idempotente por reintento. */
+    private final MeasurementUseCase measurementUseCase;
+    private final com.eduaircontrol.msmonitoring.shared.contract.UserIdentityPort userIdentityPort;
+
+    /**
+     * Ingesta HTTP alternativa a MQTT (HU-MON-001). Idempotente por reintento.
+     *
+     * <p>Exige un <b>token real</b>: el rol {@code DEVICE} es el de un dispositivo
+     * provisionado, {@code ADMIN} el de un operador y {@code SUPER_ADMIN} el del gestor
+     * global, que cuenta como administrador.
+     */
+    @PreAuthorize("hasAnyRole('DEVICE','ADMIN','SUPER_ADMIN')")
     @PostMapping("/measurements")
     @ResponseStatus(HttpStatus.CREATED)
     public MeasurementIdResponse ingest(@Valid @RequestBody IngestRequest request) {
+        requireMeasuredAtInRange(request.measuredAt());
         UUID id = measurementUseCase.record(new MeasurementUseCase.RecordCommand(
                 request.sensorInstallationId(),
                 request.variableId(),
                 request.value(),
-                request.measuredAt()));
+                request.measuredAt()),
+                callerSensorId());
         return new MeasurementIdResponse(id);
+    }
+
+    /**
+     * Sensor del que viene la medicion, o {@code null} si quien llama es una
+     * persona.
+     *
+     * <p>El {@code sub} del token de dispositivo ES el sensorId, y solo entonces se
+     * exige pertenencia: un operador ({@code ADMIN}/{@code SUPER_ADMIN}) puede
+     * cargar datos en cualquier instalacion.
+     */
+    private UUID callerSensorId() {
+        if (!userIdentityPort.currentRoles().contains(DEVICE_ROLE)) {
+            return null;
+        }
+        return userIdentityPort.currentUserId()
+                .orElseThrow(() -> new com.eduaircontrol.msmonitoring.shared.exception.ForbiddenException(
+                        "Token de dispositivo sin identidad"));
+    }
+
+    /**
+     * Acota la fecha de la medicion.
+     *
+     * <p>Sin esto el cliente controla por completo {@code measuredAt} y puede
+     * retroactivar o adelantar datos a voluntad, lo que ademas permite saltarse la
+     * dedup por (instalacion, variable, instante).
+     */
+    private static void requireMeasuredAtInRange(java.time.Instant measuredAt) {
+        if (measuredAt == null) {
+            return;
+        }
+        java.time.Instant now = java.time.Instant.now();
+        if (measuredAt.isBefore(now.minus(24, java.time.temporal.ChronoUnit.HOURS))
+                || measuredAt.isAfter(now.plus(5, java.time.temporal.ChronoUnit.MINUTES))) {
+            throw new com.eduaircontrol.msmonitoring.shared.exception.ValidationException(
+                    "measuredAt fuera de rango admitido");
+        }
+    }
+
+    /**
+     * Ultimos valores por variable de TODOS los ambientes (panel web).
+     *
+     * <p>Una sola consulta: pintar el ranking de ambientes sin este endpoint
+     * obligaria a una peticion por ambiente.
+     */
+    @GetMapping("/environments/current")
+    public List<MeasurementUseCase.EnvironmentCurrentValue> currentAll() {
+        return measurementUseCase.currentValuesForAll();
     }
 
     /** Ultimos valores por variable de un ambiente (HU-MON-003). */

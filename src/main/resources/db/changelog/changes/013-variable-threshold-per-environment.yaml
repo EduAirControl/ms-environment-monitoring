@@ -1,0 +1,41 @@
+databaseChangeLog:
+  - changeSet:
+      id: 013-variable-threshold-per-environment
+      author: eduaircontrol
+      comment: >
+        Enmienda a ADR-014: umbral con override por ambiente. Se agrega
+        educational_environment_id NULLABLE a variable_threshold; cuando tiene
+        valor, ese umbral tiene prioridad sobre el del tipo de ambiente (el que
+        sigue sembrado por Liquibase y actua por defecto). La clave original por
+        (variable, tipo, severidad) se mantiene intacta.
+      changes:
+        - addColumn:
+            tableName: variable_threshold
+            schemaName: environment_monitoring
+            columns:
+              - column:
+                  name: educational_environment_id
+                  type: uuid
+                  constraints:
+                    nullable: true
+        - createIndex:
+            tableName: variable_threshold
+            schemaName: environment_monitoring
+            indexName: ux_variable_threshold_env_var_sev
+            unique: true
+            columns:
+              - column:
+                  name: educational_environment_id
+              - column:
+                  name: variable_id
+              - column:
+                  name: severity_id
+      rollback:
+        - dropIndex:
+            tableName: variable_threshold
+            schemaName: environment_monitoring
+            indexName: ux_variable_threshold_env_var_sev
+        - dropColumn:
+            tableName: variable_threshold
+            schemaName: environment_monitoring
+            columnName: educational_environment_id

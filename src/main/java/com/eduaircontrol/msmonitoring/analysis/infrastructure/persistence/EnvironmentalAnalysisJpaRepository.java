@@ -47,4 +47,15 @@ interface EnvironmentalAnalysisJpaRepository
 
     @Query("SELECT a FROM EnvironmentalAnalysis a WHERE a.status.code = :status")
     List<EnvironmentalAnalysis> findByStatusCode(@Param("status") String status);
+
+    /** Analisis de ambientes de la institucion (null = todos). */
+    @Query(value = """
+            SELECT COUNT(*)
+            FROM environment_monitoring.environmental_analysis a
+            JOIN environment_monitoring.educational_environment e
+                ON e.educational_environment_id = a.educational_environment_id
+            WHERE (CAST(:institutionId AS uuid) IS NULL
+                   OR e.institution_id = CAST(:institutionId AS uuid))
+            """, nativeQuery = true)
+    long countByInstitution(@Param("institutionId") UUID institutionId);
 }

@@ -31,3 +31,8 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Claves criptograficas: ninguna se versiona. Los tests generan su par en
+# target/test-keys/ (TestTokenMint) y ms-security carga las suyas por env/vault.
+*.pem
+**/keys/*.pem

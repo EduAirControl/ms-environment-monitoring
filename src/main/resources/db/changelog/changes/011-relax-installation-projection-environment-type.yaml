@@ -1,0 +1,31 @@
+databaseChangeLog:
+  - changeSet:
+      id: 011-relax-installation-projection-environment-type
+      author: eduaircontrol
+      comment: >
+        environment_type_id pasa a nullable en installation_projection.
+
+        Motivo: la columna no la lee NINGUNA consulta. ThresholdAdapter:76 y
+        MeasurementEventListener:178 resuelven el tipo contra
+        environment_monitoring.educational_environment, y latestByEnvironment,
+        history y MeasurementAggregationDao filtran solo por
+        educational_environment_id. Es peso muerto que ademas obligaba a que el
+        evento SensorInstalled lo trajera, cuando este servicio no posee ese dato
+        (DEC-007: el ambiente se valida solo como UUID).
+
+        Los JOIN que leen la proyeccion no cambian de comportamiento: siguen
+        exigiendo p.removed_at is null.
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              ALTER TABLE environment_monitoring.installation_projection
+                  ALTER COLUMN environment_type_id DROP NOT NULL;
+      rollback:
+        - sql:
+            dbms: postgresql
+            sql: |
+              DELETE FROM environment_monitoring.installation_projection
+               WHERE environment_type_id IS NULL;
+              ALTER TABLE environment_monitoring.installation_projection
+                  ALTER COLUMN environment_type_id SET NOT NULL;

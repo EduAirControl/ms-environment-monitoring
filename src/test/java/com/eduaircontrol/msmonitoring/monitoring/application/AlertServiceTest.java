@@ -51,7 +51,7 @@ class AlertServiceTest extends PostgresTestBase {
     void raisesAlertWhenThresholdIsExceeded() {
         // CO2 en 1200 supera el warning (0-1000) -> CRITICAL.
         var evaluation = thresholdService.evaluate(
-                ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
                 java.time.LocalDate.now());
         assertThat(evaluation).isPresent();
 
@@ -62,13 +62,14 @@ class AlertServiceTest extends PostgresTestBase {
 
         assertThat(alert.getId()).isNotNull();
         assertThat(alert.isActive()).isTrue();
+        assertThat(alert.getSeverityCode()).isEqualTo("CRITICAL");
     }
 
     @Test
     void doesNotDuplicateAlertForSameMeasurement() {
         UUID measurementId = UUID.randomUUID();
         var evaluation = thresholdService.evaluate(
-                ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
                 java.time.LocalDate.now()).orElseThrow();
 
         var first = alertService.raiseIfAbsent(
@@ -86,7 +87,7 @@ class AlertServiceTest extends PostgresTestBase {
     @Test
     void listsActiveAlerts() {
         var evaluation = thresholdService.evaluate(
-                ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
                 java.time.LocalDate.now()).orElseThrow();
         alertService.raiseIfAbsent(
                 ENVIRONMENT_ID, CO2,
@@ -103,7 +104,7 @@ class AlertServiceTest extends PostgresTestBase {
     @Test
     void acknowledgesAnActiveAlert() {
         var evaluation = thresholdService.evaluate(
-                ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
                 java.time.LocalDate.now()).orElseThrow();
         var alert = alertService.raiseIfAbsent(
                 ENVIRONMENT_ID, CO2,
@@ -115,5 +116,128 @@ class AlertServiceTest extends PostgresTestBase {
 
         assertThat(acknowledged.acknowledgedAt()).isNotNull();
         assertThat(acknowledged.acknowledgedBy()).isEqualTo(userId);
+    }
+
+    @Test
+    void softDeletesAnAlertSoItDisappearsFromLists() {
+        var evaluation = thresholdService.evaluate(
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                java.time.LocalDate.now()).orElseThrow();
+        var alert = alertService.raiseIfAbsent(
+                ENVIRONMENT_ID, CO2,
+                evaluation.thresholdId(), UUID.randomUUID(),
+                evaluation.severityCode(), Instant.now());
+
+        alertService.delete(alert.getId(), Instant.now());
+
+        var alerts = alertService.list(new AlertUseCase.AlertQuery(
+                ENVIRONMENT_ID, null, null, null, 1, 20));
+        assertThat(alerts).isEmpty();
+    }
+
+    @Test
+    void deletingAnAlertTwiceIsIdempotent() {
+        var evaluation = thresholdService.evaluate(
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                java.time.LocalDate.now()).orElseThrow();
+        var alert = alertService.raiseIfAbsent(
+                ENVIRONMENT_ID, CO2,
+                evaluation.thresholdId(), UUID.randomUUID(),
+                evaluation.severityCode(), Instant.now());
+
+        alertService.delete(alert.getId(), Instant.now());
+        alertService.delete(alert.getId(), Instant.now()); // no lanza ConflictException
+
+        assertThat(alertService.list(new AlertUseCase.AlertQuery(
+                ENVIRONMENT_ID, null, null, null, 1, 20))).isEmpty();
+    }
+
+    @Test
+    void doesNotRaiseAgainWhileAnOpenAlertExists() {
+        var evaluation = thresholdService.evaluate(
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                java.time.LocalDate.now()).orElseThrow();
+        var first = alertService.raiseIfAbsent(
+                ENVIRONMENT_ID, CO2,
+                evaluation.thresholdId(), UUID.randomUUID(),
+                evaluation.severityCode(), Instant.now());
+        // Otra medicion (id distinto), misma excedencia: no se re-alarta.
+        var second = alertService.raiseIfAbsent(
+                ENVIRONMENT_ID, CO2,
+                evaluation.thresholdId(), UUID.randomUUID(),
+                evaluation.severityCode(), Instant.now());
+
+        assertThat(second.getId()).isEqualTo(first.getId());
+        assertThat(alertService.list(new AlertUseCase.AlertQuery(
+                ENVIRONMENT_ID, null, null, null, 1, 20))).hasSize(1);
+    }
+
+    @Test
+    void acknowledgedAlertIsNotReRaisedWhileTheConditionPersists() {
+        var evaluation = thresholdService.evaluate(
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                java.time.LocalDate.now()).orElseThrow();
+        var alert = alertService.raiseIfAbsent(
+                ENVIRONMENT_ID, CO2,
+                evaluation.thresholdId(), UUID.randomUUID(),
+                evaluation.severityCode(), Instant.now());
+        alertService.acknowledge(alert.getId(), UUID.randomUUID(), Instant.now());
+
+        var afterAcknowledge = alertService.raiseIfAbsent(
+                ENVIRONMENT_ID, CO2,
+                evaluation.thresholdId(), UUID.randomUUID(),
+                evaluation.severityCode(), Instant.now());
+
+        // Vista y reconocida: no nace otra mientras persista la excedencia.
+        assertThat(afterAcknowledge.getId()).isEqualTo(alert.getId());
+        assertThat(alertService.list(new AlertUseCase.AlertQuery(
+                ENVIRONMENT_ID, null, null, null, 1, 20))).hasSize(1);
+    }
+
+    @Test
+    void escalatesSeverityByReplacingTheCurrentAlert() {
+        var warningEvaluation = thresholdService.evaluate(
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("900"),
+                java.time.LocalDate.now()).orElseThrow();
+        assertThat(warningEvaluation.severityCode()).isEqualTo("WARNING");
+        var warning = alertService.raiseIfAbsent(
+                ENVIRONMENT_ID, CO2,
+                warningEvaluation.thresholdId(), UUID.randomUUID(),
+                warningEvaluation.severityCode(), Instant.now());
+
+        var criticalEvaluation = thresholdService.evaluate(
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                java.time.LocalDate.now()).orElseThrow();
+        var escalated = alertService.raiseIfAbsent(
+                ENVIRONMENT_ID, CO2,
+                criticalEvaluation.thresholdId(), UUID.randomUUID(),
+                criticalEvaluation.severityCode(), Instant.now());
+
+        assertThat(escalated.getId()).isNotEqualTo(warning.getId());
+        var all = alertService.list(new AlertUseCase.AlertQuery(
+                ENVIRONMENT_ID, null, null, null, 1, 20));
+        assertThat(all).hasSize(1);
+        assertThat(all.get(0).severityCode()).isEqualTo("CRITICAL");
+    }
+
+    @Test
+    void resolveOpenClosesTheAlertAndAllowsANewCycle() {
+        var evaluation = thresholdService.evaluate(
+                ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, CO2, new BigDecimal("1200"),
+                java.time.LocalDate.now()).orElseThrow();
+        var first = alertService.raiseIfAbsent(
+                ENVIRONMENT_ID, CO2,
+                evaluation.thresholdId(), UUID.randomUUID(),
+                evaluation.severityCode(), Instant.now());
+
+        alertService.resolveOpen(ENVIRONMENT_ID, CO2); // medicion vuelta a rango
+        assertThat(alertService.list(new AlertUseCase.AlertQuery(
+                ENVIRONMENT_ID, null, null, null, 1, 20))).isEmpty();
+
+        var second = alertService.raiseIfAbsent(
+                ENVIRONMENT_ID, CO2,
+                evaluation.thresholdId(), UUID.randomUUID(),
+                evaluation.severityCode(), Instant.now());
+        assertThat(second.getId()).isNotEqualTo(first.getId()); // nuevo evento
     }
 }

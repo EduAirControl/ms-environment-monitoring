@@ -10,11 +10,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 /**
- * Identidad del solicitante leida del token.
+ * Identidad del solicitante.
  *
- * <p>El servicio no tiene directorio de usuarios, y no deberia: el ID viaja en el
- * JWT desde que el emisor lo incluye. Asi el unico enlace con el dominio identity
- * es el token, no una consulta remota ni una tabla replicada.
+ * <p>Con autenticacion JWT-only (R-001) el nombre del {@link Authentication} es
+ * el correo del token, o el userId cuando el token no trae email (dispositivos).
+ * El id exacto se resuelve desde los claims del token guardado como credencial.
  */
 @Component
 @RequiredArgsConstructor
@@ -24,7 +24,32 @@ public class UserIdentityAdapter implements UserIdentityPort {
 
     @Override
     public Optional<UUID> currentUserId() {
-        return currentClaims().map(jwtService::optionalUserId).orElseGet(Optional::empty);
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return Optional.empty();
+        }
+        // 1. Header del gateway: el nombre del Authentication es el userId (UUID).
+        try {
+            return Optional.of(UUID.fromString(authentication.getName()));
+        } catch (IllegalArgumentException ignored) {
+            // no es un UUID → probar con el token
+        }
+        // 2. Fallback: token en credentials.
+        return currentClaims().flatMap(jwtService::optionalUserId);
+    }
+
+    @Override
+    public java.util.List<String> currentRoles() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return java.util.List.of();
+        }
+        return authentication.getAuthorities().stream()
+                .map(org.springframework.security.core.GrantedAuthority::getAuthority)
+                // El filtro agrega el prefijo ROLE_ para que Spring lo reconozca;
+                // aqui se devuelve el rol tal cual, sin el prefijo.
+                .map(a -> a.startsWith("ROLE_") ? a.substring(5) : a)
+                .toList();
     }
 
     @Override

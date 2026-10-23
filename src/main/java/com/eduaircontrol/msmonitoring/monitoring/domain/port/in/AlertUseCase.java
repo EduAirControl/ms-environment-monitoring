@@ -15,6 +15,15 @@ public interface AlertUseCase {
     /** Reconoce una alerta activa. */
     AlertView acknowledge(UUID alertId, UUID acknowledgedBy, Instant at);
 
+    /** Elimina (soft delete) una alerta: sale de la listas, la traza se conserva. */
+    void delete(UUID alertId, Instant at);
+
+    /**
+     * Cierra (soft delete) las alertas vigentes de un ambiente+variable cuando
+     * la medicion vuelve al rango normal.
+     */
+    void resolveOpen(UUID environmentId, UUID variableId);
+
     record AlertQuery(
             UUID environmentId,
             String status,

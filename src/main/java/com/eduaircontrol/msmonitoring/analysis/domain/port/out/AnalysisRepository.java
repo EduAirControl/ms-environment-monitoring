@@ -3,11 +3,10 @@ package com.eduaircontrol.msmonitoring.analysis.domain.port.out;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.AnalysisPeriod;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.AnalysisStatusCode;
 import com.eduaircontrol.msmonitoring.analysis.domain.model.EnvironmentalAnalysis;
+import com.eduaircontrol.msmonitoring.analysis.domain.model.PageResult;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 
 /**
  * Salida de datos del modulo de analisis. El agregado se persiste completo con sus
@@ -25,10 +24,12 @@ public interface AnalysisRepository {
 
     boolean existsByEnvironmentAndWindow(UUID environmentId, AnalysisPeriod.Window window);
 
-    Page<EnvironmentalAnalysis> search(UUID environmentId,
-                                      AnalysisStatusCode status,
-                                      Pageable pageable);
+    PageResult<EnvironmentalAnalysis> search(UUID environmentId,
+                                             AnalysisStatusCode status,
+                                             int page, int limit);
 
     /** Analisis que quedaron en RUNNING y deben reintentarse o marcarse como FAILED. */
     List<EnvironmentalAnalysis> findByStatus(AnalysisStatusCode status);
+
+    long count();
 }
