@@ -18,7 +18,7 @@ RUN ./mvnw clean package -DskipTests
 
 FROM eclipse-temurin:17-jre
 
-# curl para el HEALTHCHECK y usuario no-root (H-19).
+# curl for the HEALTHCHECK and to run as a non-root user.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
