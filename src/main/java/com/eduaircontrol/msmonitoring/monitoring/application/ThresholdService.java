@@ -48,9 +48,11 @@ public class ThresholdService {
                 where (t.valid_to is null or t.valid_to > ?)
                   and t.valid_from <= ?
                   and t.variable_id = ?
-                  and (t.environment_type_id = ?
-                       or (t.educational_environment_id is not null
-                           and t.educational_environment_id = ?))
+                  -- El umbral del tipo (sin ambiente) o el override DE ESTE ambiente:
+                  -- el override de otro ambiente del mismo tipo no debe aplicar.
+                  and ((t.educational_environment_id is null
+                        and t.environment_type_id = ?)
+                       or t.educational_environment_id = ?)
                 """, (rs, rowNum) -> new ThresholdRow(
                 rs.getObject("variable_threshold_id", UUID.class),
                 rs.getBigDecimal("min_value"),

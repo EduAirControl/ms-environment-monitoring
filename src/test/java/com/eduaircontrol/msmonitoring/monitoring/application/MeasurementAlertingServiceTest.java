@@ -46,6 +46,7 @@ class MeasurementAlertingServiceTest extends PostgresTestBase {
     @BeforeEach
     void seed() {
         jdbc.update("DELETE FROM environment_monitoring.environment_alert");
+        jdbc.update("DELETE FROM environment_monitoring.environment_measurement");
         jdbc.update("DELETE FROM environment_monitoring.installation_projection");
         jdbc.update("""
                 insert into environment_monitoring.educational_environment
