@@ -122,4 +122,31 @@ class ThresholdConfigServiceTest extends PostgresTestBase {
         assertThatThrownBy(() -> configService.effective(UUID.randomUUID()))
                 .isInstanceOf(NotFoundException.class);
     }
+
+    /**
+     * Regresion: el override de OTRO ambiente del mismo tipo no debe aplicarse a
+     * este. La fila del override lleva environment_type_id ademas del ambiente, y
+     * la consulta lo trataba como umbral del tipo, con lo que un override se
+     * filtraba a todos los ambientes de ese tipo.
+     */
+    @Test
+    void overrideOfAnotherEnvironmentOfTheSameTypeDoesNotLeak() {
+        UUID other = UUID.randomUUID();
+        jdbc.update("""
+                insert into environment_monitoring.educational_environment
+                    (educational_environment_id, code, name, environment_type_id, floor)
+                values (?, ?, 'Otro ambiente', ?, 1)
+                ON CONFLICT (educational_environment_id) DO NOTHING
+                """, other, "OTHER-" + other.toString().substring(0, 8), CLASSROOM);
+        configService.updateWarning(other, "temperature",
+                new BigDecimal("10"), new BigDecimal("11"));
+
+        // Este ambiente no tiene override: debe seguir viendo el umbral del TIPO.
+        var thresholds = configService.effective(environmentId);
+        assertThat(thresholds).anyMatch(t ->
+                "temperature".equals(t.variableCode())
+                        && "TYPE".equals(t.source())
+                        && t.minValue().compareTo(new BigDecimal("18")) == 0
+                        && t.maxValue().compareTo(new BigDecimal("28")) == 0);
+    }
 }
