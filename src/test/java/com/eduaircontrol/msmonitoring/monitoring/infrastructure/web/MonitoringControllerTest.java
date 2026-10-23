@@ -159,7 +159,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     }
 
     /**
-     * El panel web borra la notificacion con DELETE /api/v1/alerts/{id} (H-05).
+     * El panel web borra la notificacion con DELETE /api/v1/alerts/{id}.
      * Debe responder 204 y la alerta no puede reaparecer en el listado.
      */
     @Test
