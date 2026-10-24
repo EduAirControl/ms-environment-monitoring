@@ -42,9 +42,12 @@ public class ThresholdConfigService {
                 join environment_monitoring.variable v on v.variable_id = t.variable_id
                 where t.valid_to is null
                   and s.code = ?
-                  and (t.environment_type_id = ?
-                       or (t.educational_environment_id is not null
-                           and t.educational_environment_id = ?))
+                  -- El umbral del tipo (sin ambiente) o el override DE ESTE ambiente.
+                  -- Sin el "educational_environment_id is null" en la primera rama,
+                  -- el override de otro ambiente del mismo tipo se colaba aqui.
+                  and ((t.educational_environment_id is null
+                        and t.environment_type_id = ?)
+                       or t.educational_environment_id = ?)
                 order by v.code
                 """, (rs, rowNum) -> new ThresholdRow(
                 rs.getString("variable_code"),

@@ -46,9 +46,10 @@ Consume `EnvironmentalDataRecorded` de `ms-sensor-management`:
 
 ## Arranque local
 
-Requiere PostgreSQL en `localhost:5432` (BD `eduaircontrol_monitoring`) y RabbitMQ en
-`localhost:5672`. La autenticación usa RS256 vía el JWKS de `ms-security` (ADR-006):
-no hay secreto local, el token lo emite ms-security.
+Requires PostgreSQL on `localhost:5432` (database `eduaircontrol_monitoring`) and
+RabbitMQ on `localhost:5672`. Authentication is RS256 via the ms-security JWKS
+(ADR-006): there is no local secret. Environment variables live in `.env.example`
+(copy it to `.env` and adjust the values).
 
 ```bash
 # local (necesita PostgreSQL con la BD eduaircontrol_monitoring)
