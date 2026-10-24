@@ -26,76 +26,82 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class ThresholdConfigService {
 
+    private static final String SEVERITY_INFO = "INFO";
     private static final String SEVERITY_WARNING = "WARNING";
 
     private final JdbcTemplate jdbc;
 
-    /** Umbrales WARNING efectivos del ambiente, por variable. */
+    /**
+     * Umbrales INFO (normal) y WARNING (advertencia) efectivos del ambiente,
+     * por variable y severidad.
+     *
+     * <p>CRITICAL no se guarda: se deriva como «fuera del rango WARNING».
+     */
     @Transactional(readOnly = true)
     public List<ThresholdView> effective(UUID environmentId) {
         UUID environmentTypeId = requireEnvironmentType(environmentId);
         List<ThresholdRow> rows = jdbc.query("""
-                select v.code as variable_code, t.min_value, t.max_value,
-                       t.educational_environment_id
+                select v.code as variable_code, s.code as severity_code,
+                       t.min_value, t.max_value, t.educational_environment_id
                 from environment_monitoring.variable_threshold t
                 join environment_monitoring.severity s on s.severity_id = t.severity_id
                 join environment_monitoring.variable v on v.variable_id = t.variable_id
                 where t.valid_to is null
-                  and s.code = ?
+                  and s.code in (?, ?)
                   -- El umbral del tipo (sin ambiente) o el override DE ESTE ambiente.
                   -- Sin el "educational_environment_id is null" en la primera rama,
                   -- el override de otro ambiente del mismo tipo se colaba aqui.
                   and ((t.educational_environment_id is null
                         and t.environment_type_id = ?)
                        or t.educational_environment_id = ?)
-                order by v.code
+                order by v.code, s.level
                 """, (rs, rowNum) -> new ThresholdRow(
                 rs.getString("variable_code"),
+                rs.getString("severity_code"),
                 rs.getBigDecimal("min_value"),
                 rs.getBigDecimal("max_value"),
                 rs.getObject("educational_environment_id", UUID.class) != null),
-                SEVERITY_WARNING, environmentTypeId, environmentId);
+                SEVERITY_INFO, SEVERITY_WARNING, environmentTypeId, environmentId);
 
-        Map<String, ThresholdRow> byVariable = new LinkedHashMap<>();
-        rows.forEach(row -> byVariable.merge(
-                row.variableCode(), row,
+        // La clave incluye la severidad: cada variable puede tener INFO y WARNING.
+        Map<String, ThresholdRow> effective = new LinkedHashMap<>();
+        rows.forEach(row -> effective.merge(
+                row.variableCode() + "|" + row.severityCode(), row,
                 (existing, incoming) -> incoming.environmentScoped() ? incoming : existing));
 
         List<ThresholdView> result = new ArrayList<>();
-        byVariable.forEach((code, row) -> result.add(new ThresholdView(
-                code, row.min(), row.max(), row.environmentScoped() ? "ENVIRONMENT" : "TYPE")));
+        effective.values().forEach(row -> result.add(new ThresholdView(
+                row.variableCode(), row.severityCode(), row.min(), row.max(),
+                row.environmentScoped() ? "ENVIRONMENT" : "TYPE")));
         return result;
     }
 
     /**
      * Crea o reemplaza el override WARNING del ambiente para una variable.
-     * Devuelve el umbral efectivo resultante.
+     * Se mantiene por compatibilidad con el endpoint antiguo.
      */
     @Transactional
     public ThresholdView updateWarning(UUID environmentId, String variableCode,
                                        BigDecimal minValue, BigDecimal maxValue) {
+        return update(environmentId, variableCode, SEVERITY_WARNING, minValue, maxValue);
+    }
+
+    /**
+     * Crea o reemplaza el override del ambiente para una variable y severidad.
+     * Solo INFO y WARNING son editables; CRITICAL se deriva del WARNING.
+     */
+    @Transactional
+    public ThresholdView update(UUID environmentId, String variableCode, String severityCode,
+                                BigDecimal minValue, BigDecimal maxValue) {
+        String severity = normalizeSeverity(severityCode);
         if (minValue != null && maxValue != null && minValue.compareTo(maxValue) > 0) {
             throw new IllegalArgumentException("El minimo no puede superar el maximo");
         }
         UUID environmentTypeId = requireEnvironmentType(environmentId);
-        UUID variableId = jdbc.query("""
-                        select variable_id from environment_monitoring.variable
-                        where code = ?
-                        """,
-                rs -> rs.next() ? rs.getObject("variable_id", UUID.class) : null,
-                variableCode);
-        if (variableId == null) {
-            throw new NotFoundException("Variable no encontrada: " + variableCode);
-        }
-        UUID severityId = jdbc.query("""
-                        select severity_id from environment_monitoring.severity
-                        where code = ?
-                        """,
-                rs -> rs.next() ? rs.getObject("severity_id", UUID.class) : null,
-                SEVERITY_WARNING);
-        if (severityId == null) {
-            throw new NotFoundException("Severidad no encontrada: " + SEVERITY_WARNING);
-        }
+        UUID variableId = requireVariable(variableCode);
+        UUID severityId = requireSeverity(severity);
+
+        validateAgainstEffective(environmentId, variableCode, severity, minValue, maxValue);
 
         LocalDate today = LocalDate.now();
         // Se cierra el override vigente; los umbrales con historia no se borran.
@@ -129,7 +135,94 @@ public class ThresholdConfigService {
                 UUID.randomUUID(), variableId, environmentTypeId,
                 environmentId, minValue, maxValue, severityId, today);
 
-        return new ThresholdView(variableCode, minValue, maxValue, "ENVIRONMENT");
+        return new ThresholdView(variableCode, severity, minValue, maxValue, "ENVIRONMENT");
+    }
+
+    /**
+     * Guarda varios umbrales del ambiente en una sola transaccion. Los INFO se
+     * aplican antes que los WARNING para que la validacion de contencion use el
+     * rango normal nuevo.
+     */
+    @Transactional
+    public List<ThresholdView> updateAll(UUID environmentId, List<ThresholdUpdate> updates) {
+        if (updates == null || updates.isEmpty()) {
+            throw new IllegalArgumentException("Debe enviar al menos un umbral");
+        }
+        return updates.stream()
+                .sorted((a, b) -> severityOrder(a.severityCode()) - severityOrder(b.severityCode()))
+                .map(update -> update(environmentId, update.variableCode(),
+                        update.severityCode(), update.minValue(), update.maxValue()))
+                .toList();
+    }
+
+    private void validateAgainstEffective(UUID environmentId, String variableCode,
+                                          String severityCode,
+                                          BigDecimal minValue, BigDecimal maxValue) {
+        Map<String, ThresholdView> current = new LinkedHashMap<>();
+        effective(environmentId).stream()
+                .filter(t -> variableCode.equals(t.variableCode()))
+                .forEach(t -> current.put(t.severityCode(), t));
+
+        ThresholdView info = SEVERITY_INFO.equals(severityCode)
+                ? new ThresholdView(variableCode, SEVERITY_INFO, minValue, maxValue, "ENVIRONMENT")
+                : current.get(SEVERITY_INFO);
+        ThresholdView warning = SEVERITY_WARNING.equals(severityCode)
+                ? new ThresholdView(variableCode, SEVERITY_WARNING, minValue, maxValue, "ENVIRONMENT")
+                : current.get(SEVERITY_WARNING);
+
+        // El rango normal debe quedar contenido en el de advertencia; si no, un
+        // valor podria ser CRITICAL y OK a la vez segun el orden de evaluacion.
+        if (info != null && warning != null) {
+            if (info.minValue() != null && warning.minValue() != null
+                    && info.minValue().compareTo(warning.minValue()) < 0) {
+                throw new IllegalArgumentException(
+                        "El minimo normal no puede ser menor que el minimo de advertencia");
+            }
+            if (info.maxValue() != null && warning.maxValue() != null
+                    && info.maxValue().compareTo(warning.maxValue()) > 0) {
+                throw new IllegalArgumentException(
+                        "El maximo normal no puede ser mayor que el maximo de advertencia");
+            }
+        }
+    }
+
+    private String normalizeSeverity(String severityCode) {
+        String severity = severityCode == null ? SEVERITY_WARNING : severityCode.toUpperCase();
+        if (!SEVERITY_INFO.equals(severity) && !SEVERITY_WARNING.equals(severity)) {
+            throw new IllegalArgumentException(
+                    "Solo se pueden editar los umbrales INFO y WARNING; CRITICAL se deriva");
+        }
+        return severity;
+    }
+
+    private int severityOrder(String severityCode) {
+        return SEVERITY_INFO.equalsIgnoreCase(severityCode) ? 0 : 1;
+    }
+
+    private UUID requireVariable(String variableCode) {
+        UUID variableId = jdbc.query("""
+                        select variable_id from environment_monitoring.variable
+                        where code = ?
+                        """,
+                rs -> rs.next() ? rs.getObject("variable_id", UUID.class) : null,
+                variableCode);
+        if (variableId == null) {
+            throw new NotFoundException("Variable no encontrada: " + variableCode);
+        }
+        return variableId;
+    }
+
+    private UUID requireSeverity(String severityCode) {
+        UUID severityId = jdbc.query("""
+                        select severity_id from environment_monitoring.severity
+                        where code = ?
+                        """,
+                rs -> rs.next() ? rs.getObject("severity_id", UUID.class) : null,
+                severityCode);
+        if (severityId == null) {
+            throw new NotFoundException("Severidad no encontrada: " + severityCode);
+        }
+        return severityId;
     }
 
     private UUID requireEnvironmentType(UUID environmentId) {
@@ -146,11 +239,15 @@ public class ThresholdConfigService {
         return environmentTypeId;
     }
 
-    public record ThresholdView(String variableCode, BigDecimal minValue, BigDecimal maxValue,
-                                String source) {
+    public record ThresholdView(String variableCode, String severityCode,
+                                BigDecimal minValue, BigDecimal maxValue, String source) {
     }
 
-    private record ThresholdRow(String variableCode, BigDecimal min, BigDecimal max,
-                                boolean environmentScoped) {
+    public record ThresholdUpdate(String variableCode, String severityCode,
+                                  BigDecimal minValue, BigDecimal maxValue) {
+    }
+
+    private record ThresholdRow(String variableCode, String severityCode,
+                                BigDecimal min, BigDecimal max, boolean environmentScoped) {
     }
 }

@@ -79,6 +79,15 @@ class ThresholdServiceTest extends PostgresTestBase {
     }
 
     @Test
+    void evaluateSeverityReportsOkInsideNormalRange() {
+        var evaluation = thresholds.evaluateSeverity(
+                UUID.randomUUID(), CLASSROOM, TEMPERATURE, new BigDecimal("22.0"), TODAY);
+
+        assertThat(evaluation).isPresent();
+        assertThat(evaluation.get().severityCode()).isEqualTo("OK");
+    }
+
+    @Test
     void nullValueGeneratesNoAlert() {
         assertThat(thresholds.evaluate(UUID.randomUUID(), CLASSROOM, TEMPERATURE, null, TODAY)).isEmpty();
     }

@@ -11,6 +11,7 @@ import com.eduaircontrol.msmonitoring.shared.exception.NotFoundException;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class MeasurementService implements MeasurementUseCase {
     private final VariableCatalogPort variableCatalogPort;
     private final InstallationProjectionPort installationProjectionPort;
     private final MeasurementAlertingService alertingService;
+    private final ThresholdService thresholdService;
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
@@ -88,8 +90,29 @@ public class MeasurementService implements MeasurementUseCase {
                         row.variableId(),
                         variableCodeOf(row.variableId()),
                         row.value(),
-                        row.measuredAt()))
+                        row.measuredAt(),
+                        severityCode(row.environmentId(), row.environmentTypeId(),
+                                row.variableId(), row.value(), row.measuredAt())))
                 .toList();
+    }
+
+    /**
+     * Severidad de la ultima medicion con los umbrales vigentes del ambiente.
+     *
+     * <p>El estado del panel no puede depender de las alertas: reconocer una
+     * alerta no hace que el ambiente vuelva a estar OK, y un cambio de umbral
+     * debe reflejarse sin esperar a la siguiente medicion. Por eso se evalua la
+     * lectura actual contra el umbral actual.
+     */
+    private String severityCode(UUID environmentId, UUID environmentTypeId,
+                                UUID variableId, BigDecimal value, Instant measuredAt) {
+        if (environmentTypeId == null || measuredAt == null) {
+            return null;
+        }
+        return thresholdService.evaluateSeverity(environmentId, environmentTypeId, variableId, value,
+                        measuredAt.atZone(ZoneOffset.UTC).toLocalDate())
+                .map(ThresholdService.Evaluation::severityCode)
+                .orElse(null);
     }
 
     @Override

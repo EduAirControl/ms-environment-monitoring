@@ -55,6 +55,7 @@ public class MeasurementRepositoryAdapter implements MeasurementRepository {
         return measurements.latestAll(TenantContext.institutionId()).stream()
                 .map(row -> new EnvironmentCurrent(
                         row.getEducationalEnvironmentId(),
+                        row.getEnvironmentTypeId(),
                         row.getVariableId(),
                         row.getMeasuredValue(),
                         row.getMeasuredAt()))
