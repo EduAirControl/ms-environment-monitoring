@@ -149,7 +149,7 @@ public class ThresholdConfigService {
             throw new IllegalArgumentException("Debe enviar al menos un umbral");
         }
         return updates.stream()
-                .sorted((a, b) -> severityOrder(a.severityCode()) - severityOrder(b.severityCode()))
+                .sorted((a, b) -> Integer.compare(severityOrder(a.severityCode()), severityOrder(b.severityCode())))
                 .map(update -> update(environmentId, update.variableCode(),
                         update.severityCode(), update.minValue(), update.maxValue()))
                 .toList();
