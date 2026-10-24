@@ -18,6 +18,9 @@ public interface ThresholdPort {
     /** Umbrales de advertencia de todas las variables del ambiente. */
     List<Range> warningRanges(UUID environmentId);
 
+    /** Rango (min/max) de un umbral concreto por su id, si existe. */
+    java.util.Optional<Range> byId(UUID thresholdId);
+
     record Range(UUID environmentId, UUID variableId, BigDecimal min, BigDecimal max,
                  boolean environmentScoped) {
     }

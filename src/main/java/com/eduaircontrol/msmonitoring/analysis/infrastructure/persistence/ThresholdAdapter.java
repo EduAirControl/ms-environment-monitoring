@@ -89,6 +89,21 @@ public class ThresholdAdapter implements ThresholdPort {
         return List.copyOf(byVariable.values());
     }
 
+    @Override
+    public Optional<Range> byId(UUID thresholdId) {
+        return jdbc.query("""
+                select educational_environment_id, variable_id, min_value, max_value
+                from environment_monitoring.variable_threshold
+                where variable_threshold_id = ?
+                """, (rs, rowNum) -> new Range(
+                rs.getObject("educational_environment_id", UUID.class),
+                rs.getObject("variable_id", UUID.class),
+                rs.getBigDecimal("min_value"),
+                rs.getBigDecimal("max_value"),
+                rs.getObject("educational_environment_id", UUID.class) != null),
+                thresholdId).stream().findFirst();
+    }
+
     private UUID environmentTypeOf(UUID environmentId) {
         return jdbc.query("""
                         select environment_type_id from environment_monitoring.educational_environment
