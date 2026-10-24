@@ -35,6 +35,7 @@ public class AlertService implements AlertUseCase {
     private final AlertRepository alertRepository;
     private final MeasurementRepository measurementRepository;
     private final VariableCatalogPort variableCatalogPort;
+    private final com.eduaircontrol.msmonitoring.shared.contract.ThresholdPort thresholdPort;
     private final Clock clock;
 
     /**
@@ -136,6 +137,9 @@ public class AlertService implements AlertUseCase {
                 measurementRepository.findById(alert.getTriggeringMeasurementId())
                         .map(m -> m.getMeasuredValue())
                         .orElse(null);
+        // Rango del umbral que se excedio (para que la UI muestre con que se comparo).
+        com.eduaircontrol.msmonitoring.shared.contract.ThresholdPort.Range threshold =
+                thresholdPort.byId(alert.getVariableThresholdId()).orElse(null);
         return new AlertView(
                 alert.getId(),
                 alert.getEducationalEnvironmentId(),
@@ -143,6 +147,8 @@ public class AlertService implements AlertUseCase {
                 variableCode,
                 alert.getSeverityCode(),
                 triggeringValue,
+                threshold == null ? null : threshold.min(),
+                threshold == null ? null : threshold.max(),
                 alert.getRaisedAt(),
                 alert.getAcknowledgedAt(),
                 alert.getAcknowledgedBy());

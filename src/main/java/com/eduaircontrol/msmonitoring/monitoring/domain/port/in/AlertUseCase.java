@@ -40,6 +40,8 @@ public interface AlertUseCase {
             String variableCode,
             String severityCode,
             java.math.BigDecimal triggeringValue,
+            java.math.BigDecimal thresholdMinValue,
+            java.math.BigDecimal thresholdMaxValue,
             Instant raisedAt,
             Instant acknowledgedAt,
             UUID acknowledgedBy) {
