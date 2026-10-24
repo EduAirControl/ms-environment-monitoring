@@ -36,6 +36,7 @@ public class AlertService implements AlertUseCase {
     private final MeasurementRepository measurementRepository;
     private final VariableCatalogPort variableCatalogPort;
     private final com.eduaircontrol.msmonitoring.shared.contract.ThresholdPort thresholdPort;
+    private final ExpoPushService expoPushService;
     private final Clock clock;
 
     /**
@@ -68,7 +69,10 @@ public class AlertService implements AlertUseCase {
         }
         EnvironmentAlert alert = EnvironmentAlert.raise(
                 environmentId, variableId, thresholdId, measurementId, severityCode, at);
-        return alertRepository.save(alert);
+        EnvironmentAlert saved = alertRepository.save(alert);
+        // Aviso push a la app movil (best-effort, tras el commit).
+        expoPushService.alertRaised(saved);
+        return saved;
     }
 
     /** Cierra las alertas vigentes del par cuando la medicion vuelve a rango. */

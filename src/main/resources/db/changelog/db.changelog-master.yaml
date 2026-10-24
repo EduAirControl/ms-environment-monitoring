@@ -140,3 +140,5 @@ databaseChangeLog:
       file: db/changelog/changes/014-alert-soft-delete.yaml
   - include:
       file: db/changelog/changes/015-educational-environment-institution.yaml
+  - include:
+      file: db/changelog/changes/016-push-token.yaml
