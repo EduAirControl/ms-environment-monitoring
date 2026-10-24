@@ -22,8 +22,8 @@ FROM eclipse-temurin:17-jre
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 1000 app \
-    && useradd --uid 1000 --gid 1000 --system --shell /usr/sbin/nologin app
+    && groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin app
 
 WORKDIR /app
 
