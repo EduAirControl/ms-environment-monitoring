@@ -94,14 +94,16 @@ public class ThresholdConfigService {
     public ThresholdView update(UUID environmentId, String variableCode, String severityCode,
                                 BigDecimal minValue, BigDecimal maxValue) {
         String severity = normalizeSeverity(severityCode);
-        if (minValue != null && maxValue != null && minValue.compareTo(maxValue) > 0) {
-            throw new IllegalArgumentException("El minimo no puede superar el maximo");
-        }
+        validateRange(minValue, maxValue);
+        validateAgainstEffective(environmentId, variableCode, severity, minValue, maxValue);
+        return persist(environmentId, variableCode, severity, minValue, maxValue);
+    }
+
+    private ThresholdView persist(UUID environmentId, String variableCode, String severity,
+                                  BigDecimal minValue, BigDecimal maxValue) {
         UUID environmentTypeId = requireEnvironmentType(environmentId);
         UUID variableId = requireVariable(variableCode);
         UUID severityId = requireSeverity(severity);
-
-        validateAgainstEffective(environmentId, variableCode, severity, minValue, maxValue);
 
         LocalDate today = LocalDate.now();
         // Se cierra el override vigente; los umbrales con historia no se borran.
@@ -139,20 +141,57 @@ public class ThresholdConfigService {
     }
 
     /**
-     * Guarda varios umbrales del ambiente en una sola transaccion. Los INFO se
-     * aplican antes que los WARNING para que la validacion de contencion use el
-     * rango normal nuevo.
+     * Guarda varios umbrales del ambiente en una sola transaccion. La contencion
+     * se valida contra el lote completo antes de escribir: el orden INFO/WARNING
+     * no puede depender de los valores que aun estan vigentes en la base.
      */
     @Transactional
     public List<ThresholdView> updateAll(UUID environmentId, List<ThresholdUpdate> updates) {
         if (updates == null || updates.isEmpty()) {
             throw new IllegalArgumentException("Debe enviar al menos un umbral");
         }
-        return updates.stream()
+        List<ThresholdUpdate> normalized = updates.stream()
+                .map(update -> new ThresholdUpdate(update.variableCode(),
+                        normalizeSeverity(update.severityCode()), update.minValue(), update.maxValue()))
+                .toList();
+        normalized.forEach(update -> validateRange(update.minValue(), update.maxValue()));
+        validateBatchAgainstEffective(environmentId, normalized);
+        return normalized.stream()
                 .sorted((a, b) -> Integer.compare(severityOrder(a.severityCode()), severityOrder(b.severityCode())))
-                .map(update -> update(environmentId, update.variableCode(),
+                .map(update -> persist(environmentId, update.variableCode(),
                         update.severityCode(), update.minValue(), update.maxValue()))
                 .toList();
+    }
+
+    private void validateRange(BigDecimal minValue, BigDecimal maxValue) {
+        if (minValue != null && maxValue != null && minValue.compareTo(maxValue) > 0) {
+            throw new IllegalArgumentException("El minimo no puede superar el maximo");
+        }
+    }
+
+    /**
+     * Valida la contencion usando los valores propuestos en el lote, no los que
+     * siguen vigentes en la base. Sin esto no se puede corregir un WARNING que
+     * hoy es invalido junto con su INFO: la validacion del INFO veia el WARNING
+     * viejo y abortaba la transaccion antes de actualizarlo.
+     */
+    private void validateBatchAgainstEffective(UUID environmentId, List<ThresholdUpdate> updates) {
+        Map<String, ThresholdView> proposed = new LinkedHashMap<>();
+        effective(environmentId).forEach(t -> proposed.put(
+                key(t.variableCode(), t.severityCode()), t));
+        for (ThresholdUpdate update : updates) {
+            proposed.put(key(update.variableCode(), update.severityCode()),
+                    new ThresholdView(update.variableCode(), update.severityCode(),
+                            update.minValue(), update.maxValue(), "ENVIRONMENT"));
+        }
+        updates.stream().map(ThresholdUpdate::variableCode).distinct().forEach(variableCode ->
+                validateContainment(
+                        proposed.get(key(variableCode, SEVERITY_INFO)),
+                        proposed.get(key(variableCode, SEVERITY_WARNING))));
+    }
+
+    private String key(String variableCode, String severityCode) {
+        return variableCode + "|" + severityCode;
     }
 
     private void validateAgainstEffective(UUID environmentId, String variableCode,
@@ -170,19 +209,26 @@ public class ThresholdConfigService {
                 ? new ThresholdView(variableCode, SEVERITY_WARNING, minValue, maxValue, "ENVIRONMENT")
                 : current.get(SEVERITY_WARNING);
 
-        // El rango normal debe quedar contenido en el de advertencia; si no, un
-        // valor podria ser CRITICAL y OK a la vez segun el orden de evaluacion.
-        if (info != null && warning != null) {
-            if (info.minValue() != null && warning.minValue() != null
-                    && info.minValue().compareTo(warning.minValue()) < 0) {
-                throw new IllegalArgumentException(
-                        "El minimo normal no puede ser menor que el minimo de advertencia");
-            }
-            if (info.maxValue() != null && warning.maxValue() != null
-                    && info.maxValue().compareTo(warning.maxValue()) > 0) {
-                throw new IllegalArgumentException(
-                        "El maximo normal no puede ser mayor que el maximo de advertencia");
-            }
+        validateContainment(info, warning);
+    }
+
+    /**
+     * El rango normal debe quedar contenido en el de advertencia; si no, un
+     * valor podria ser CRITICAL y OK a la vez segun el orden de evaluacion.
+     */
+    private void validateContainment(ThresholdView info, ThresholdView warning) {
+        if (info == null || warning == null) {
+            return;
+        }
+        if (info.minValue() != null && warning.minValue() != null
+                && info.minValue().compareTo(warning.minValue()) < 0) {
+            throw new IllegalArgumentException(
+                    "El minimo normal no puede ser menor que el minimo de advertencia");
+        }
+        if (info.maxValue() != null && warning.maxValue() != null
+                && info.maxValue().compareTo(warning.maxValue()) > 0) {
+            throw new IllegalArgumentException(
+                    "El maximo normal no puede ser mayor que el maximo de advertencia");
         }
     }
 
