@@ -57,7 +57,8 @@ public interface MeasurementUseCase {
             UUID variableId,
             String variableCode,
             BigDecimal value,
-            Instant measuredAt) {
+            Instant measuredAt,
+            String severityCode) {
     }
 
     record HistoryQuery(

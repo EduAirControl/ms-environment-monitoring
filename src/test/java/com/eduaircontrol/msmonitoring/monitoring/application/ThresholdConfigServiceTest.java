@@ -64,21 +64,77 @@ class ThresholdConfigServiceTest extends PostgresTestBase {
     }
 
     @Test
+    void effectiveIncludesInfoAndWarningRanges() {
+        var thresholds = configService.effective(environmentId);
+
+        assertThat(thresholds).anyMatch(t ->
+                "temperature".equals(t.variableCode())
+                        && "INFO".equals(t.severityCode())
+                        && t.minValue().compareTo(new BigDecimal("20")) == 0
+                        && t.maxValue().compareTo(new BigDecimal("26")) == 0);
+        assertThat(thresholds).anyMatch(t ->
+                "temperature".equals(t.variableCode())
+                        && "WARNING".equals(t.severityCode())
+                        && t.minValue().compareTo(new BigDecimal("18")) == 0
+                        && t.maxValue().compareTo(new BigDecimal("28")) == 0);
+    }
+
+    @Test
+    void updateAllSavesInfoAndWarningTogether() {
+        configService.updateAll(environmentId, java.util.List.of(
+                new ThresholdConfigService.ThresholdUpdate(
+                        "temperature", "INFO", new BigDecimal("22"), new BigDecimal("24")),
+                new ThresholdConfigService.ThresholdUpdate(
+                        "temperature", "WARNING", new BigDecimal("20"), new BigDecimal("26"))));
+
+        var thresholds = configService.effective(environmentId);
+        assertThat(thresholds).anyMatch(t ->
+                "temperature".equals(t.variableCode())
+                        && "INFO".equals(t.severityCode())
+                        && t.minValue().compareTo(new BigDecimal("22")) == 0
+                        && t.maxValue().compareTo(new BigDecimal("24")) == 0);
+        assertThat(thresholds).anyMatch(t ->
+                "temperature".equals(t.variableCode())
+                        && "WARNING".equals(t.severityCode())
+                        && t.minValue().compareTo(new BigDecimal("20")) == 0
+                        && t.maxValue().compareTo(new BigDecimal("26")) == 0);
+
+        // 21 sale del rango normal nuevo (22-24) pero sigue dentro del warning.
+        var warning = thresholdService.evaluate(
+                environmentId, CLASSROOM, TEMPERATURE, new BigDecimal("21"), LocalDate.now());
+        assertThat(warning).isPresent();
+        assertThat(warning.get().severityCode()).isEqualTo("WARNING");
+
+        var critical = thresholdService.evaluate(
+                environmentId, CLASSROOM, TEMPERATURE, new BigDecimal("27"), LocalDate.now());
+        assertThat(critical).isPresent();
+        assertThat(critical.get().severityCode()).isEqualTo("CRITICAL");
+    }
+
+    @Test
+    void normalRangeMustBeContainedInWarningRange() {
+        assertThatThrownBy(() -> configService.update(
+                environmentId, "temperature", "INFO",
+                new BigDecimal("10"), new BigDecimal("26")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void updateCreatesOverrideThatBeatsTheTypeThreshold() {
         configService.updateWarning(environmentId, "temperature",
-                new BigDecimal("21"), new BigDecimal("25"));
+                new BigDecimal("19"), new BigDecimal("27"));
 
         var thresholds = configService.effective(environmentId);
         assertThat(thresholds).anyMatch(t ->
                 "temperature".equals(t.variableCode())
                         && "ENVIRONMENT".equals(t.source())
-                        && t.minValue().compareTo(new BigDecimal("21")) == 0
-                        && t.maxValue().compareTo(new BigDecimal("25")) == 0);
+                        && t.minValue().compareTo(new BigDecimal("19")) == 0
+                        && t.maxValue().compareTo(new BigDecimal("27")) == 0);
 
-        // La evaluacion de alertas usa el override: 27 ya es CRITICAL
-        // (fuera del WARNING 21-25 del ambiente), no WARNING del tipo.
+        // La evaluacion de alertas usa el override: 28 ya es CRITICAL
+        // (fuera del WARNING 19-27 del ambiente), no WARNING del tipo.
         var evaluation = thresholdService.evaluate(
-                environmentId, CLASSROOM, TEMPERATURE, new BigDecimal("27"), LocalDate.now());
+                environmentId, CLASSROOM, TEMPERATURE, new BigDecimal("28"), LocalDate.now());
         assertThat(evaluation).isPresent();
         assertThat(evaluation.get().severityCode()).isEqualTo("CRITICAL");
     }
@@ -86,9 +142,9 @@ class ThresholdConfigServiceTest extends PostgresTestBase {
     @Test
     void updateClosesThePreviousOverride() {
         configService.updateWarning(environmentId, "temperature",
-                new BigDecimal("21"), new BigDecimal("25"));
+                new BigDecimal("19"), new BigDecimal("27"));
         configService.updateWarning(environmentId, "temperature",
-                new BigDecimal("22"), new BigDecimal("24"));
+                new BigDecimal("19.5"), new BigDecimal("26.5"));
 
         var open = jdbc.queryForObject("""
                 select count(*) from environment_monitoring.variable_threshold
@@ -99,8 +155,8 @@ class ThresholdConfigServiceTest extends PostgresTestBase {
         var thresholds = configService.effective(environmentId);
         assertThat(thresholds).anyMatch(t ->
                 "temperature".equals(t.variableCode())
-                        && t.minValue().compareTo(new BigDecimal("22")) == 0
-                        && t.maxValue().compareTo(new BigDecimal("24")) == 0);
+                        && t.minValue().compareTo(new BigDecimal("19.5")) == 0
+                        && t.maxValue().compareTo(new BigDecimal("26.5")) == 0);
     }
 
     @Test
@@ -139,7 +195,7 @@ class ThresholdConfigServiceTest extends PostgresTestBase {
                 ON CONFLICT (educational_environment_id) DO NOTHING
                 """, other, "OTHER-" + other.toString().substring(0, 8), CLASSROOM);
         configService.updateWarning(other, "temperature",
-                new BigDecimal("10"), new BigDecimal("11"));
+                new BigDecimal("19"), new BigDecimal("27"));
 
         // Este ambiente no tiene override: debe seguir viendo el umbral del TIPO.
         var thresholds = configService.effective(environmentId);

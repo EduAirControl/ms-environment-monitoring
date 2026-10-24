@@ -249,9 +249,10 @@ class MonitoringControllerTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[?(@.environmentId=='" + ENVIRONMENT_ID
-                        + "' && @.variableCode=='temperature' && @.value==25.5)]").exists())
+                        + "' && @.variableCode=='temperature' && @.value==25.5"
+                        + " && @.severityCode=='OK')]").exists())
                 .andExpect(jsonPath("$[?(@.environmentId=='" + otherEnv
-                        + "' && @.variableCode=='co2')]").exists());
+                        + "' && @.variableCode=='co2' && @.severityCode=='OK')]").exists());
     }
 
     @Test
