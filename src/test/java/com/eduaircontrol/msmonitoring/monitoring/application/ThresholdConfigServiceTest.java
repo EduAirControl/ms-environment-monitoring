@@ -120,6 +120,54 @@ class ThresholdConfigServiceTest extends PostgresTestBase {
     }
 
     @Test
+    void updateAllCanFixAnInvalidWarningTogetherWithItsNormalRange() {
+        // Estado que dejo el bug en produccion: el WARNING vigente (33-39) no
+        // contiene al INFO del tipo (20-26). La UI envia ambos rangos nuevos,
+        // pero la validacion vieja procesaba el INFO contra el WARNING anterior
+        // y abortaba antes de guardar el WARNING corregido.
+        jdbc.update("""
+                insert into environment_monitoring.variable_threshold
+                    (variable_threshold_id, variable_id, environment_type_id,
+                     educational_environment_id, min_value, max_value,
+                     severity_id, valid_from)
+                select ?, v.variable_id, ?, ?, 33, 39, s.severity_id, current_date
+                from environment_monitoring.variable v,
+                     environment_monitoring.severity s
+                where v.code = 'temperature' and s.code = 'WARNING'
+                """, UUID.randomUUID(), CLASSROOM, environmentId);
+
+        configService.updateAll(environmentId, java.util.List.of(
+                new ThresholdConfigService.ThresholdUpdate(
+                        "temperature", "INFO", new BigDecimal("22"), new BigDecimal("24")),
+                new ThresholdConfigService.ThresholdUpdate(
+                        "temperature", "WARNING", new BigDecimal("20"), new BigDecimal("26"))));
+
+        var thresholds = configService.effective(environmentId);
+        assertThat(thresholds).anyMatch(t ->
+                "temperature".equals(t.variableCode())
+                        && "INFO".equals(t.severityCode())
+                        && "ENVIRONMENT".equals(t.source())
+                        && t.minValue().compareTo(new BigDecimal("22")) == 0
+                        && t.maxValue().compareTo(new BigDecimal("24")) == 0);
+        assertThat(thresholds).anyMatch(t ->
+                "temperature".equals(t.variableCode())
+                        && "WARNING".equals(t.severityCode())
+                        && "ENVIRONMENT".equals(t.source())
+                        && t.minValue().compareTo(new BigDecimal("20")) == 0
+                        && t.maxValue().compareTo(new BigDecimal("26")) == 0);
+    }
+
+    @Test
+    void updateAllStillRejectsANonContainedBatch() {
+        assertThatThrownBy(() -> configService.updateAll(environmentId, java.util.List.of(
+                new ThresholdConfigService.ThresholdUpdate(
+                        "temperature", "INFO", new BigDecimal("10"), new BigDecimal("26")),
+                new ThresholdConfigService.ThresholdUpdate(
+                        "temperature", "WARNING", new BigDecimal("18"), new BigDecimal("28")))))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void updateCreatesOverrideThatBeatsTheTypeThreshold() {
         configService.updateWarning(environmentId, "temperature",
                 new BigDecimal("19"), new BigDecimal("27"));
