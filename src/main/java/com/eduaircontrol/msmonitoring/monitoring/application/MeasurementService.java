@@ -11,6 +11,8 @@ import com.eduaircontrol.msmonitoring.shared.exception.NotFoundException;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -65,6 +67,48 @@ public class MeasurementService implements MeasurementUseCase {
                 command.variableId(), command.value(), measuredAt);
 
         return savedId;
+    }
+
+    @Override
+    public BatchResult recordBatch(List<RecordCommand> commands, UUID callerSensorId) {
+        List<BatchItemResult> results = new ArrayList<>();
+        int accepted = 0;
+        int duplicates = 0;
+        int rejected = 0;
+        for (int i = 0; i < commands.size(); i++) {
+            RecordCommand command = commands.get(i);
+            try {
+                if (command.value() == null) {
+                    results.add(new BatchItemResult(i, "rejected", null, "VALIDATION_ERROR",
+                            "value es obligatorio"));
+                    rejected++;
+                    continue;
+                }
+                if (command.measuredAt() != null) {
+                    Instant now = Instant.now();
+                    if (command.measuredAt().isBefore(now.minus(24, ChronoUnit.HOURS))
+                            || command.measuredAt().isAfter(now.plus(5, ChronoUnit.MINUTES))) {
+                        results.add(new BatchItemResult(i, "rejected", null, "VALIDATION_ERROR",
+                                "measuredAt fuera de rango admitido"));
+                        rejected++;
+                        continue;
+                    }
+                }
+                UUID id = record(command, callerSensorId);
+                if (id == null) {
+                    results.add(new BatchItemResult(i, "duplicate", null, null, null));
+                    duplicates++;
+                } else {
+                    results.add(new BatchItemResult(i, "accepted", id, null, null));
+                    accepted++;
+                }
+            } catch (Exception e) {
+                results.add(new BatchItemResult(i, "rejected", null, "ERROR",
+                        e.getMessage() != null ? e.getMessage() : "error desconocido"));
+                rejected++;
+            }
+        }
+        return new BatchResult(commands.size(), accepted, duplicates, rejected, results);
     }
 
     @Override
