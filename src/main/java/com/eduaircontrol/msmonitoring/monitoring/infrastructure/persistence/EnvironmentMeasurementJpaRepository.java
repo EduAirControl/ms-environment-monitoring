@@ -46,6 +46,7 @@ public interface EnvironmentMeasurementJpaRepository
 
     @Query(value = """
             select p.educational_environment_id as educational_environment_id,
+                   e.environment_type_id as environment_type_id,
                    m.variable_id as variable_id,
                    m.measured_value as measured_value,
                    m.measured_at as measured_at

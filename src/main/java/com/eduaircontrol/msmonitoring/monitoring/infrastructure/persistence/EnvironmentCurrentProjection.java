@@ -16,6 +16,8 @@ public interface EnvironmentCurrentProjection {
 
     UUID getEducationalEnvironmentId();
 
+    UUID getEnvironmentTypeId();
+
     UUID getVariableId();
 
     BigDecimal getMeasuredValue();
