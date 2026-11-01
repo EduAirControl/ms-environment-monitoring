@@ -1,32 +1,24 @@
 package com.eduaircontrol.msmonitoring.monitoring.application;
 
-import com.eduaircontrol.msmonitoring.monitoring.domain.model.EnvironmentMeasurement;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.in.MeasurementUseCase;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.MeasurementRepository;
-import com.eduaircontrol.msmonitoring.shared.contract.InstallationProjectionPort;
 import com.eduaircontrol.msmonitoring.shared.contract.VariableCatalogPort;
-import com.eduaircontrol.msmonitoring.shared.exception.ForbiddenException;
-import com.eduaircontrol.msmonitoring.shared.exception.GoneException;
-import com.eduaircontrol.msmonitoring.shared.exception.NotFoundException;
 import java.math.BigDecimal;
-import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Registro y consulta de mediciones (HU-MON-001 … HU-MON-004).
  *
- * <p>El registro es idempotente por (instalacion, variable, instante): una
- * reingesta no duplica. La calidad por defecto es VALID; el backfill y el
- * consumidor resuelven el flag que corresponda.
+ * <p>El registro es idempotente por (instalacion, variable, instante):
+ * una reingesta no duplica. La calidad por defecto es VALID.
  */
 @Service
 @RequiredArgsConstructor
@@ -34,41 +26,12 @@ public class MeasurementService implements MeasurementUseCase {
 
     private final MeasurementRepository measurementRepository;
     private final VariableCatalogPort variableCatalogPort;
-    private final InstallationProjectionPort installationProjectionPort;
-    private final MeasurementAlertingService alertingService;
+    private final MeasurementRecordingService recordingService;
     private final ThresholdService thresholdService;
-    private final JdbcTemplate jdbc;
-    private final Clock clock;
 
     @Override
-    @Transactional
     public UUID record(RecordCommand command, UUID callerSensorId) {
-        if (command.value() == null) {
-            throw new IllegalArgumentException("value es obligatorio");
-        }
-        requireActiveInstallation(command.sensorInstallationId(), callerSensorId);
-        Instant measuredAt = command.measuredAt() != null ? command.measuredAt() : clock.instant();
-        if (measurementRepository.existsByInstallationAndVariableAndInstant(
-                command.sensorInstallationId(), command.variableId(), measuredAt)) {
-            return null;
-        }
-        EnvironmentMeasurement measurement = EnvironmentMeasurement.builder()
-                .id(UUID.randomUUID())
-                .sensorInstallationId(command.sensorInstallationId())
-                .variableId(command.variableId())
-                .measuredValue(command.value())
-                .measuredAt(measuredAt)
-                .qualityFlagId(qualityFlagId("VALID"))
-                .createdAt(clock.instant())
-                .build();
-        UUID savedId = measurementRepository.save(measurement).getId();
-
-        // La evaluacion de umbrales corre en la misma transaccion que el registro:
-        // o queda la medicion con su alerta, o no queda ninguna de las dos.
-        alertingService.evaluate(savedId, command.sensorInstallationId(),
-                command.variableId(), command.value(), measuredAt);
-
-        return savedId;
+        return recordingService.record(command, callerSensorId);
     }
 
     @Override
@@ -77,26 +40,32 @@ public class MeasurementService implements MeasurementUseCase {
         int accepted = 0;
         int duplicates = 0;
         int rejected = 0;
+
         for (int i = 0; i < commands.size(); i++) {
             RecordCommand command = commands.get(i);
+
             try {
                 if (command.value() == null) {
-                    results.add(new BatchItemResult(i, "rejected", null, "VALIDATION_ERROR",
-                            "value es obligatorio"));
+                    results.add(new BatchItemResult(i, "rejected", null,
+                            "VALIDATION_ERROR", "value es obligatorio"));
                     rejected++;
                     continue;
                 }
+
                 if (command.measuredAt() != null) {
                     Instant now = Instant.now();
+
                     if (command.measuredAt().isBefore(now.minus(24, ChronoUnit.HOURS))
                             || command.measuredAt().isAfter(now.plus(5, ChronoUnit.MINUTES))) {
-                        results.add(new BatchItemResult(i, "rejected", null, "VALIDATION_ERROR",
-                                "measuredAt fuera de rango admitido"));
+                        results.add(new BatchItemResult(i, "rejected", null,
+                                "VALIDATION_ERROR", "measuredAt fuera de rango admitido"));
                         rejected++;
                         continue;
                     }
                 }
-                UUID id = record(command, callerSensorId);
+
+                UUID id = recordingService.record(command, callerSensorId);
+
                 if (id == null) {
                     results.add(new BatchItemResult(i, "duplicate", null, null, null));
                     duplicates++;
@@ -104,13 +73,16 @@ public class MeasurementService implements MeasurementUseCase {
                     results.add(new BatchItemResult(i, "accepted", id, null, null));
                     accepted++;
                 }
+
             } catch (Exception e) {
                 results.add(new BatchItemResult(i, "rejected", null, "ERROR",
                         e.getMessage() != null ? e.getMessage() : "error desconocido"));
                 rejected++;
             }
         }
-        return new BatchResult(commands.size(), accepted, duplicates, rejected, results);
+
+        return new BatchResult(
+                commands.size(), accepted, duplicates, rejected, results);
     }
 
     @Override
@@ -141,11 +113,11 @@ public class MeasurementService implements MeasurementUseCase {
     }
 
     /**
-     * Severidad de la ultima medicion con los umbrales vigentes del ambiente.
+     * Severidad de la última medición con los umbrales vigentes del ambiente.
      *
      * <p>El estado del panel no puede depender de las alertas: reconocer una
      * alerta no hace que el ambiente vuelva a estar OK, y un cambio de umbral
-     * debe reflejarse sin esperar a la siguiente medicion. Por eso se evalua la
+     * debe reflejarse sin esperar a la siguiente medición. Por eso se evalúa la
      * lectura actual contra el umbral actual.
      */
     private String severityCode(UUID environmentId, UUID environmentTypeId,
@@ -153,7 +125,12 @@ public class MeasurementService implements MeasurementUseCase {
         if (environmentTypeId == null || measuredAt == null) {
             return null;
         }
-        return thresholdService.evaluateSeverity(environmentId, environmentTypeId, variableId, value,
+
+        return thresholdService.evaluateSeverity(
+                        environmentId,
+                        environmentTypeId,
+                        variableId,
+                        value,
                         measuredAt.atZone(ZoneOffset.UTC).toLocalDate())
                 .map(ThresholdService.Evaluation::severityCode)
                 .orElse(null);
@@ -181,57 +158,9 @@ public class MeasurementService implements MeasurementUseCase {
         return measurementRepository.count();
     }
 
-    /**
-     * Rechaza mediciones contra una instalacion que ya no admite datos.
-     *
-     * <p>Es lo que evita que un nodo que sigue enviando tras ser desvinculado
-     * ({@code POST /sensor-installations/{id}/remove}) o purgado
-     * ({@code DELETE /sensor-installations/{id}}) llene la base de mediciones que
-     * ninguna consulta devuelve: sin fila en la proyeccion no hay ambiente al que
-     * atribuirlas.
-     *
-     * <p>410 y no 404: la instalacion existio, pero no volvera a estar activa.
-     */
-    /**
-     * Comprueba que la instalacion exista, siga activa y, si quien llama es un
-     * dispositivo, que sea SU instalacion.
-     *
-     * <p>Sin esa ultima comprobacion cualquier token de dispositivo podia escribir
-     * en cualquier instalacion: solo hacia falta saber un installationId, que es
-     * publico en la respuesta de alta. Con {@code callerSensorId} nulo (un
-     * operador humano) no se exige pertenencia.
-     */
-    private void requireActiveInstallation(UUID sensorInstallationId, UUID callerSensorId) {
-        InstallationProjectionPort.InstallationState state =
-                installationProjectionPort.findState(sensorInstallationId)
-                        .orElseThrow(() -> new GoneException(
-                                "La instalacion no existe o fue purgada: " + sensorInstallationId
-                                        + ". Reaprovisiona el dispositivo."));
-        if (callerSensorId != null && !callerSensorId.equals(state.sensorId())) {
-            throw new ForbiddenException(
-                    "El token no corresponde al sensor de esta instalacion: " + sensorInstallationId);
-        }
-        if (!state.isActive()) {
-            throw new GoneException(
-                    "La instalacion esta cerrada y no admite mediciones: " + sensorInstallationId
-                            + ". Reaprovisiona el dispositivo.");
-        }
-    }
-
     private String variableCodeOf(UUID variableId) {
         return variableCatalogPort.findById(variableId)
                 .map(VariableCatalogPort.VariableRef::code)
                 .orElse(variableId.toString());
-    }
-
-    private UUID qualityFlagId(String code) {
-        return jdbc.query("""
-                        select quality_flag_id from environment_monitoring.quality_flag
-                        where code = ?
-                        """,
-                        (rs, rowNum) -> rs.getObject("quality_flag_id", UUID.class),
-                        code)
-                .stream().findFirst()
-                .orElseThrow(() -> new NotFoundException("quality_flag no sembrado: " + code));
     }
 }
