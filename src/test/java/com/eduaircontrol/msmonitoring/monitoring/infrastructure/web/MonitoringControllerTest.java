@@ -480,6 +480,157 @@ class MonitoringControllerTest extends PostgresTestBase {
                 .andExpect(status().isUnauthorized());
     }
 
+    /** Rango sin mediciones devuelve lista vacia (no 500 ni NPE). */
+    @Test
+    void listsMeasurementsEmpty() throws Exception {
+        mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    /** Una sola medicion se devuelve correctamente. */
+    @Test
+    void listsMeasurementsWithSingle() throws Exception {
+        jdbc.update("""
+                insert into environment_monitoring.environment_measurement
+                    (environment_measurement_id, sensor_installation_id, variable_id,
+                     measured_value, measured_at, quality_flag_id)
+                values (?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), INSTALLATION_ID, TEMPERATURE,
+                new BigDecimal("23.0"), Timestamp.from(Instant.now()), VALID_FLAG);
+
+        String now = Instant.now().toString();
+        String from = Instant.now().minusSeconds(3600).toString();
+        mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", from)
+                        .param("to", now))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].variableCode").value("temperature"))
+                .andExpect(jsonPath("$[0].value").value(23.0));
+    }
+
+    /** Varias mediciones se devuelven ordenadas. */
+    @Test
+    void listsMeasurementsWithMultiple() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            jdbc.update("""
+                    insert into environment_monitoring.environment_measurement
+                        (environment_measurement_id, sensor_installation_id, variable_id,
+                         measured_value, measured_at, quality_flag_id)
+                    values (?, ?, ?, ?, ?, ?)
+                    """, UUID.randomUUID(), INSTALLATION_ID, TEMPERATURE,
+                    new BigDecimal(20 + i), Timestamp.from(Instant.now().plusSeconds(i)), VALID_FLAG);
+        }
+
+        String now = Instant.now().plusSeconds(10).toString();
+        String from = Instant.now().minusSeconds(3600).toString();
+        mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", from)
+                        .param("to", now)
+                        .param("limit", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3));
+    }
+
+    /** Rango sin datos en /measurements/batch devuelve 400 (lote vacio). */
+    @Test
+    void rejectsEmptyBatch() throws Exception {
+        mockMvc.perform(post("/api/v1/measurements/batch")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"measurements\":[]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    /** Batch con una medicion valida devuelve accepted. */
+    @Test
+    void ingestsBatchWithSingle() throws Exception {
+        String body = "{\"measurements\":[{\"sensorInstallationId\":\"" + INSTALLATION_ID + "\""
+                + ",\"variableId\":\"" + TEMPERATURE + "\""
+                + ",\"value\":22.5}]}";
+
+        mockMvc.perform(post("/api/v1/measurements/batch")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.accepted").value(1))
+                .andExpect(jsonPath("$.results[0].status").value("accepted"));
+    }
+
+    /** Batch con duplicado marca como duplicate. */
+    @Test
+    void ingestsBatchWithDuplicate() throws Exception {
+        String body = "{\"sensorInstallationId\":\"" + INSTALLATION_ID + "\""
+                + ",\"variableId\":\"" + TEMPERATURE + "\""
+                + ",\"value\":22.5}";
+        // First ingest
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        // Batch with same measurement (no measuredAt -> defaults to now, may or may not duplicate)
+        // Use explicit measuredAt to guarantee duplicate
+        String ts = java.time.Instant.now().toString();
+        String body2 = "{\"measurements\":[{\"sensorInstallationId\":\"" + INSTALLATION_ID + "\""
+                + ",\"variableId\":\"" + TEMPERATURE + "\""
+                + ",\"value\":22.5"
+                + ",\"measuredAt\":\"" + ts + "\"}]}";
+        // First batch
+        mockMvc.perform(post("/api/v1/measurements/batch")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body2))
+                .andExpect(status().isOk());
+
+        // Second batch (duplicate)
+        mockMvc.perform(post("/api/v1/measurements/batch")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body2))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.duplicates").value(1));
+    }
+
+    /** Dashboard series con rango sin datos devuelve lista vacia. */
+    @Test
+    void dashboardSeriesEmpty() throws Exception {
+        mockMvc.perform(get("/api/v1/dashboard/series")
+                        .header("Authorization", "Bearer " + token)
+                        .param("period", "day"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    /** Dashboard summary con datos vacios no falla. */
+    @Test
+    void dashboardSummaryEmpty() throws Exception {
+        mockMvc.perform(get("/api/v1/dashboard/summary")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.counts.measurements").value(0));
+    }
+
+    /** Rango vacio en path de agregacion (>1 dia) devuelve lista vacia. */
+    @Test
+    void listsMeasurementsEmptyAggregated() throws Exception {
+        String now = Instant.now().toString();
+        String from = Instant.now().minusSeconds(2 * 86400).toString();
+        mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
+                        .header("Authorization", "Bearer " + token)
+                        .param("from", from)
+                        .param("to", now))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
     /** Con un token real (aunque sea de usuario normal) las lecturas siguen abiertas. */
     @Test
     void allowsReadsWithARealToken() throws Exception {
