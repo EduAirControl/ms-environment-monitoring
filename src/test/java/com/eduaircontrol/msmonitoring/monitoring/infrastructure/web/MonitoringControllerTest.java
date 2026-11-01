@@ -31,6 +31,9 @@ import org.springframework.web.context.WebApplicationContext;
  */
 class MonitoringControllerTest extends PostgresTestBase {
 
+    private static final UUID TEST_INSTITUTION =
+            UUID.fromString("99999999-9999-4999-8999-999999999999");
+
     private static final UUID ENVIRONMENT_ID =
             UUID.fromString("aaaaaaaa-0000-4000-8000-000000000001");
     private static final UUID ENVIRONMENT_TYPE_ID =
@@ -71,10 +74,10 @@ class MonitoringControllerTest extends PostgresTestBase {
 
         jdbc.update("""
                 insert into environment_monitoring.educational_environment
-                    (educational_environment_id, code, name, environment_type_id, floor)
-                values (?, 'MON-TEST', 'Ambiente monitoreo', ?, 1)
-                ON CONFLICT (educational_environment_id) DO NOTHING
-                """, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID);
+                    (educational_environment_id, code, name, environment_type_id, floor, institution_id)
+                values (?, 'MON-TEST', 'Ambiente monitoreo', ?, 1, ?)
+                ON CONFLICT (educational_environment_id) DO UPDATE SET institution_id = EXCLUDED.institution_id
+                """, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, TEST_INSTITUTION);
         // Se limpia la proyeccion antes de sembrarla: ConsumerTestBase reutiliza el
         // mismo INSTALLATION_ID con otro sensor_id y, con ON CONFLICT DO NOTHING,
         // se quedaria su fila. Un solo borrado: si se repite entre los dos inserts,
@@ -100,6 +103,12 @@ class MonitoringControllerTest extends PostgresTestBase {
 
         // El sub del token es el sensorId: asi se puede exigir pertenencia.
         token = tokenFor(SENSOR_ID, "monitor@test.com");
+    }
+
+    /** Token de persona con institucion: los dispositivos no pueden leer. */
+    private String readerToken() {
+        return com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                UUID.randomUUID(), "reader@test.com", java.util.List.of("USER"), TEST_INSTITUTION, null);
     }
 
     /** Token de dispositivo: el unico que puede enviar mediciones. */
@@ -133,7 +142,7 @@ class MonitoringControllerTest extends PostgresTestBase {
                 new BigDecimal("23.0"), Timestamp.from(Instant.now()), VALID_FLAG);
 
         mockMvc.perform(get("/api/v1/environments/{id}/current", ENVIRONMENT_ID)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].variableCode").value("temperature"));
     }
@@ -141,7 +150,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void listsAlertsEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/alerts")
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }
@@ -167,11 +176,11 @@ class MonitoringControllerTest extends PostgresTestBase {
         UUID alertId = seedAlert();
 
         mockMvc.perform(delete("/api/v1/alerts/{id}", alertId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/alerts")
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }
@@ -182,10 +191,10 @@ class MonitoringControllerTest extends PostgresTestBase {
         UUID alertId = seedAlert();
 
         mockMvc.perform(delete("/api/v1/alerts/{id}", alertId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isNoContent());
         mockMvc.perform(delete("/api/v1/alerts/{id}", alertId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isNoContent());
     }
 
@@ -193,7 +202,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void deletingAnUnknownAlertReturnsNotFound() throws Exception {
         mockMvc.perform(delete("/api/v1/alerts/{id}", UUID.randomUUID())
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isNotFound());
     }
 
@@ -208,10 +217,10 @@ class MonitoringControllerTest extends PostgresTestBase {
         UUID otherInstallation = UUID.randomUUID();
         jdbc.update("""
                 insert into environment_monitoring.educational_environment
-                    (educational_environment_id, code, name, environment_type_id, floor)
-                values (?, 'MON-TEST-2', 'Ambiente dos', ?, 1)
+                    (educational_environment_id, code, name, environment_type_id, floor, institution_id)
+                values (?, 'MON-TEST-2', 'Ambiente dos', ?, 1, ?)
                 ON CONFLICT (educational_environment_id) DO NOTHING
-                """, otherEnv, ENVIRONMENT_TYPE_ID);
+                """, otherEnv, ENVIRONMENT_TYPE_ID, TEST_INSTITUTION);
         jdbc.update("""
                 insert into environment_monitoring.installation_projection
                     (sensor_installation_id, educational_environment_id,
@@ -245,7 +254,7 @@ class MonitoringControllerTest extends PostgresTestBase {
                 new BigDecimal("600"), Timestamp.from(Instant.now()), VALID_FLAG);
 
         mockMvc.perform(get("/api/v1/environments/current")
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[?(@.environmentId=='" + ENVIRONMENT_ID
@@ -267,7 +276,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void rejectsIngestFromAnOrdinaryUserToken() throws Exception {
         String userToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                UUID.randomUUID(), "user@test.com", "USER");
+                UUID.randomUUID(), "user@test.com", java.util.List.of("USER"), TEST_INSTITUTION, null);
 
         mockMvc.perform(post("/api/v1/measurements")
                         .header("Authorization", "Bearer " + userToken)
@@ -299,7 +308,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void forgedAdminHeadersDoNotElevateAUserToken() throws Exception {
         String userToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                UUID.randomUUID(), "user@test.com", "USER");
+                UUID.randomUUID(), "user@test.com", java.util.List.of("USER"), TEST_INSTITUTION, null);
 
         mockMvc.perform(post("/api/v1/measurements")
                         .header("Authorization", "Bearer " + userToken)
@@ -314,7 +323,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void acceptsIngestFromAnAdminToken() throws Exception {
         String adminToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                UUID.randomUUID(), "admin@test.com", "ADMIN");
+                UUID.randomUUID(), "admin@test.com", java.util.List.of("ADMIN"), TEST_INSTITUTION, null);
 
         mockMvc.perform(post("/api/v1/measurements")
                         .header("Authorization", "Bearer " + adminToken)
@@ -422,7 +431,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void adminTokenCanWriteToAnyInstallation() throws Exception {
         String adminToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                UUID.randomUUID(), "admin@test.com", "ADMIN");
+                UUID.randomUUID(), "admin@test.com", java.util.List.of("ADMIN"), TEST_INSTITUTION, null);
 
         mockMvc.perform(post("/api/v1/measurements")
                         .header("Authorization", "Bearer " + adminToken)
@@ -484,7 +493,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void listsMeasurementsEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }
@@ -503,7 +512,7 @@ class MonitoringControllerTest extends PostgresTestBase {
         String now = Instant.now().toString();
         String from = Instant.now().minusSeconds(3600).toString();
         mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + readerToken())
                         .param("from", from)
                         .param("to", now))
                 .andExpect(status().isOk())
@@ -528,7 +537,7 @@ class MonitoringControllerTest extends PostgresTestBase {
         String now = Instant.now().plusSeconds(10).toString();
         String from = Instant.now().minusSeconds(3600).toString();
         mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + readerToken())
                         .param("from", from)
                         .param("to", now)
                         .param("limit", "10"))
@@ -603,7 +612,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void dashboardSeriesEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/dashboard/series")
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + readerToken())
                         .param("period", "day"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
@@ -613,7 +622,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void dashboardSummaryEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/dashboard/summary")
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.counts.measurements").value(0));
     }
@@ -624,7 +633,7 @@ class MonitoringControllerTest extends PostgresTestBase {
         String now = Instant.now().toString();
         String from = Instant.now().minusSeconds(2 * 86400).toString();
         mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + readerToken())
                         .param("from", from)
                         .param("to", now))
                 .andExpect(status().isOk())
@@ -635,7 +644,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void allowsReadsWithARealToken() throws Exception {
         String userToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                UUID.randomUUID(), "reader@test.com", "USER");
+                UUID.randomUUID(), "reader@test.com", java.util.List.of("USER"), TEST_INSTITUTION, null);
 
         mockMvc.perform(get("/api/v1/environments/current")
                         .header("Authorization", "Bearer " + userToken))

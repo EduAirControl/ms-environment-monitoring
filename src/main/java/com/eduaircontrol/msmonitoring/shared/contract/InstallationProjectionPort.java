@@ -26,7 +26,8 @@ public interface InstallationProjectionPort {
 
     Optional<InstallationState> findState(UUID sensorInstallationId);
 
-    record InstallationState(UUID sensorInstallationId, UUID sensorId, Instant removedAt) {
+    record InstallationState(UUID sensorInstallationId, UUID sensorId,
+                             UUID educationalEnvironmentId, Instant removedAt) {
 
         /** Activas solo las que existen en la proyeccion y jamas se retiraron. */
         public boolean isActive() {

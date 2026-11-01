@@ -1,6 +1,9 @@
 package com.eduaircontrol.msmonitoring.monitoring.infrastructure.web;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,6 +15,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers;
@@ -149,5 +153,187 @@ class InstitutionIsolationTest extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].environmentId").value(ENV_A.toString()));
+    }
+
+    private String tokenWithRoles(UUID institutionId, String... roles) {
+        return com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                UUID.randomUUID(), "user@test.com", List.of(roles), institutionId, null);
+    }
+
+    private String bearer(String token) {
+        return "Bearer " + token;
+    }
+
+    @Test
+    void userTokenWithoutInstitutionIsRejected() throws Exception {
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", bearer(tokenFor(null))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void superAdminWithoutInstitutionSeesEverything() throws Exception {
+        mockMvc.perform(get("/api/v1/alerts")
+                        .header("Authorization", bearer(tokenWithRoles(null, "SUPER_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
+    }
+
+    @Test
+    void cannotReadCurrentValuesOfForeignEnvironment() throws Exception {
+        mockMvc.perform(get("/api/v1/environments/" + ENV_B + "/current")
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/environments/" + ENV_A + "/current")
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void cannotReadHistoryOfForeignEnvironment() throws Exception {
+        mockMvc.perform(get("/api/v1/environments/" + ENV_B + "/measurements")
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void cannotReadOrChangeThresholdsOfForeignEnvironment() throws Exception {
+        mockMvc.perform(get("/api/v1/environments/" + ENV_B + "/thresholds")
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(put("/api/v1/environments/" + ENV_B + "/thresholds/temperature")
+                        .header("Authorization", bearer(tokenWithRoles(INSTITUTION_A, "ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"minValue\":10,\"maxValue\":30}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void cannotAcknowledgeOrDeleteForeignAlert() throws Exception {
+        mockMvc.perform(post("/api/v1/alerts/" + ALERT_B + "/acknowledge")
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/v1/alerts/" + ALERT_B)
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isNotFound());
+        Integer deleted = jdbc.queryForObject(
+                "select count(*) from environment_monitoring.environment_alert "
+                        + "where environment_alert_id = ? and deleted_at is not null",
+                Integer.class, ALERT_B);
+        org.junit.jupiter.api.Assertions.assertEquals(0, deleted);
+    }
+
+    @Test
+    void canDeleteOwnAlert() throws Exception {
+        mockMvc.perform(delete("/api/v1/alerts/" + ALERT_A)
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void cannotRequestSeriesOrAnalysesOfForeignEnvironment() throws Exception {
+        mockMvc.perform(get("/api/v1/dashboard/series")
+                        .param("environmentId", ENV_B.toString())
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/analyses")
+                        .param("environmentId", ENV_B.toString())
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/analyses/latest")
+                        .param("environmentId", ENV_B.toString())
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void superAdminCanNarrowToOneInstitution() throws Exception {
+        String superAdmin = bearer(tokenWithRoles(null, "SUPER_ADMIN"));
+        mockMvc.perform(get("/api/v1/alerts")
+                        .param("institutionId", INSTITUTION_B.toString())
+                        .header("Authorization", superAdmin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].environmentId").value(ENV_B.toString()));
+        mockMvc.perform(get("/api/v1/environments/current")
+                        .param("institutionId", INSTITUTION_A.toString())
+                        .header("Authorization", superAdmin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].environmentId").value(ENV_A.toString()));
+    }
+
+    @Test
+    void superAdminWithInvalidInstitutionIdGetsBadRequest() throws Exception {
+        mockMvc.perform(get("/api/v1/alerts")
+                        .param("institutionId", "no-es-un-uuid")
+                        .header("Authorization", bearer(tokenWithRoles(null, "SUPER_ADMIN"))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void regularUserCannotSwitchInstitutionWithTheParameter() throws Exception {
+        mockMvc.perform(get("/api/v1/alerts")
+                        .param("institutionId", INSTITUTION_B.toString())
+                        .header("Authorization", bearer(tokenFor(INSTITUTION_A))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].environmentId").value(ENV_A.toString()));
+    }
+
+    @Test
+    void deviceTokenCannotReadAnything() throws Exception {
+        String device = bearer(tokenWithRoles(null, "DEVICE"));
+        mockMvc.perform(get("/api/v1/alerts").header("Authorization", device))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/dashboard/summary").header("Authorization", device))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/environments/current").header("Authorization", device))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void requestWithoutTokenStillGets401() throws Exception {
+        mockMvc.perform(get("/api/v1/alerts")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void adminCannotIngestIntoForeignInstallation() throws Exception {
+        String body = "{\"sensorInstallationId\":\"" + INSTALL_B + "\",\"variableId\":\""
+                + TEMPERATURE + "\",\"value\":22.5}";
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", bearer(tokenWithRoles(INSTITUTION_A, "ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNotFound());
+        Integer rows = jdbc.queryForObject(
+                "select count(*) from environment_monitoring.environment_measurement "
+                        + "where sensor_installation_id = ?", Integer.class, INSTALL_B);
+        org.junit.jupiter.api.Assertions.assertEquals(1, rows); // solo la sembrada
+    }
+
+    @Test
+    void adminCanIngestIntoOwnInstallation() throws Exception {
+        String body = "{\"sensorInstallationId\":\"" + INSTALL_A + "\",\"variableId\":\""
+                + TEMPERATURE + "\",\"value\":22.5}";
+        mockMvc.perform(post("/api/v1/measurements")
+                        .header("Authorization", bearer(tokenWithRoles(INSTITUTION_A, "ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void cannotExportOrBulkUpdateForeignEnvironment() throws Exception {
+        String admin = bearer(tokenWithRoles(INSTITUTION_A, "ADMIN"));
+        mockMvc.perform(get("/api/v1/measurements/export")
+                        .param("environmentId", ENV_B.toString())
+                        .header("Authorization", admin))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(put("/api/v1/environments/" + ENV_B + "/thresholds")
+                        .header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"thresholds\":[]}"))
+                .andExpect(status().isNotFound());
     }
 }
