@@ -67,6 +67,7 @@ public class DashboardController {
         Map<String, List<MeasurementUseCase.CurrentValue>> byVariable = new LinkedHashMap<>();
         currentValues.forEach(cv -> byVariable.computeIfAbsent(cv.variableCode(), k -> new ArrayList<>()).add(cv));
         byVariable.forEach((code, values) -> {
+            if (values.isEmpty()) return;
             BigDecimal avg = values.stream()
                     .map(MeasurementUseCase.CurrentValue::value)
                     .reduce(BigDecimal.ZERO, BigDecimal::add)
@@ -163,6 +164,7 @@ public class DashboardController {
         });
 
         return bucketed.entrySet().stream()
+                .filter(e -> !e.getValue().isEmpty())
                 .map(e -> {
                     BigDecimal avg = e.getValue().stream()
                             .map(MeasurementUseCase.MeasurementView::value)

@@ -187,19 +187,23 @@ public class MeasurementService implements MeasurementUseCase {
             params.add(query.variableId());
         }
         sql.append("AND a.bucket_start >= ? AND a.bucket_start <= ? ");
-        params.add(from);
-        params.add(to);
+        params.add(java.sql.Timestamp.from(from));
+        params.add(java.sql.Timestamp.from(to));
         sql.append("ORDER BY a.bucket_start LIMIT ? OFFSET ?");
         params.add(query.limit());
         params.add((query.page() - 1) * query.limit());
 
-        return jdbc.query(sql.toString(), (rs, rowNum) -> new MeasurementView(
-                null,
-                rs.getObject("variable_id", UUID.class),
-                variableCodeOf(rs.getObject("variable_id", UUID.class)),
-                rs.getBigDecimal("avg_value"),
-                rs.getTimestamp("bucket_start").toInstant()),
-                params.toArray());
+        return jdbc.query(sql.toString(), (rs, rowNum) -> {
+            java.sql.Timestamp ts = rs.getTimestamp("bucket_start");
+            if (ts == null) return null;
+            UUID varId = rs.getObject("variable_id", UUID.class);
+            return new MeasurementView(
+                    null,
+                    varId,
+                    varId != null ? variableCodeOf(varId) : null,
+                    rs.getBigDecimal("avg_value"),
+                    ts.toInstant());
+        }, params.toArray()).stream().filter(java.util.Objects::nonNull).toList();
     }
 
     @Override
