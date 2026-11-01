@@ -114,6 +114,11 @@ public class ExpoPushService {
                 log.debug("Push de alerta {} enviado a {} dispositivo(s)",
                         alert.getId(), tokens.size());
             }
+        } catch (InterruptedException e) {
+            // httpClient.send() borra la marca de interrupcion al lanzarla: se
+            // restaura para que el executor pueda detener el hilo al apagar.
+            Thread.currentThread().interrupt();
+            log.warn("Push for alert {} interrupted before it was sent", alert.getId());
         } catch (Exception e) {
             log.warn("No se pudo enviar el push de la alerta {}: {}", alert.getId(), e.getMessage());
         }
