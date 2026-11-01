@@ -5,12 +5,16 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -61,7 +65,18 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html"
                         ).permitAll()
-                        .anyRequest().authenticated())
+                        // Un dispositivo solo escribe mediciones: su token no trae
+                        // institucion, asi que leer con el veria todas (ADR-016).
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/measurements", "/api/v1/measurements/batch").authenticated()
+                        .anyRequest().access((authentication, context) -> {
+                            Authentication caller = authentication.get();
+                            boolean allowed = caller != null && caller.isAuthenticated()
+                                    && !(caller instanceof AnonymousAuthenticationToken)
+                                    && caller.getAuthorities().stream()
+                                            .noneMatch(a -> "ROLE_DEVICE".equals(a.getAuthority()));
+                            return new AuthorizationDecision(allowed);
+                        }))
                 // Sin esto Spring responde 403 cuando no hay token, y el frontend
                 // solo cierra sesion ante un 401. El contrato de error debe ser
                 // identico al del monolito.

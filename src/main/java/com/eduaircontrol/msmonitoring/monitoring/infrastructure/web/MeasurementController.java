@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
@@ -39,6 +40,7 @@ public class MeasurementController {
     private static final String DEVICE_ROLE = "DEVICE";
 
     private final MeasurementUseCase measurementUseCase;
+    private final TenantGuard tenantGuard;
     private final com.eduaircontrol.msmonitoring.shared.contract.UserIdentityPort userIdentityPort;
 
     /**
@@ -134,6 +136,7 @@ public class MeasurementController {
     /** Ultimos valores por variable de un ambiente (HU-MON-003). */
     @GetMapping("/environments/{id}/current")
     public List<MeasurementUseCase.CurrentValue> current(@PathVariable UUID id) {
+        tenantGuard.requireEnvironment(id);
         return measurementUseCase.currentValues(id);
     }
 
@@ -146,6 +149,7 @@ public class MeasurementController {
             @RequestParam(name = "to", required = false) Instant to,
             @RequestParam(name = "page", defaultValue = "1") int page,
             @RequestParam(name = "limit", defaultValue = "20") int limit) {
+        tenantGuard.requireEnvironment(id);
         return measurementUseCase.history(new MeasurementUseCase.HistoryQuery(
                 id, variableId,
                 from != null ? from : Instant.EPOCH,

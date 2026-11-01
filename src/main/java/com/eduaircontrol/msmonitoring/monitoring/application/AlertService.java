@@ -8,6 +8,7 @@ import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.MeasurementRepo
 import com.eduaircontrol.msmonitoring.shared.contract.VariableCatalogPort;
 import com.eduaircontrol.msmonitoring.shared.exception.ConflictException;
 import com.eduaircontrol.msmonitoring.shared.exception.NotFoundException;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantGuard;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -37,6 +38,7 @@ public class AlertService implements AlertUseCase {
     private final VariableCatalogPort variableCatalogPort;
     private final com.eduaircontrol.msmonitoring.shared.contract.ThresholdPort thresholdPort;
     private final ExpoPushService expoPushService;
+    private final TenantGuard tenantGuard;
     private final Clock clock;
 
     /**
@@ -112,6 +114,7 @@ public class AlertService implements AlertUseCase {
     public AlertView acknowledge(UUID alertId, UUID acknowledgedBy, Instant at) {
         EnvironmentAlert alert = alertRepository.findById(alertId)
                 .orElseThrow(() -> new NotFoundException("Alerta no encontrada: " + alertId));
+        tenantGuard.requireEnvironment(alert.getEducationalEnvironmentId());
         if (!alert.isActive()) {
             throw new ConflictException("La alerta ya fue reconocida");
         }
@@ -124,6 +127,7 @@ public class AlertService implements AlertUseCase {
     public void delete(UUID alertId, Instant at) {
         EnvironmentAlert alert = alertRepository.findById(alertId)
                 .orElseThrow(() -> new NotFoundException("Alerta no encontrada: " + alertId));
+        tenantGuard.requireEnvironment(alert.getEducationalEnvironmentId());
         if (alert.isDeleted()) {
             return; // idempotente: dos DELETE seguidos no fallan
         }

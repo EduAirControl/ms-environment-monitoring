@@ -4,6 +4,7 @@ import com.eduaircontrol.msmonitoring.monitoring.domain.model.EnvironmentMeasure
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.in.MeasurementUseCase;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.MeasurementRepository;
 import com.eduaircontrol.msmonitoring.shared.contract.InstallationProjectionPort;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantGuard;
 import com.eduaircontrol.msmonitoring.shared.contract.VariableCatalogPort;
 import com.eduaircontrol.msmonitoring.shared.exception.ForbiddenException;
 import com.eduaircontrol.msmonitoring.shared.exception.GoneException;
@@ -34,6 +35,7 @@ public class MeasurementService implements MeasurementUseCase {
     private final MeasurementRepository measurementRepository;
     private final VariableCatalogPort variableCatalogPort;
     private final InstallationProjectionPort installationProjectionPort;
+    private final TenantGuard tenantGuard;
     private final MeasurementAlertingService alertingService;
     private final JdbcTemplate jdbc;
     private final Clock clock;
@@ -187,6 +189,10 @@ public class MeasurementService implements MeasurementUseCase {
         if (callerSensorId != null && !callerSensorId.equals(state.sensorId())) {
             throw new ForbiddenException(
                     "El token no corresponde al sensor de esta instalacion: " + sensorInstallationId);
+        }
+        if (callerSensorId == null) {
+            // Operador humano: no puede cargar datos en una instalacion de otra institucion.
+            tenantGuard.requireEnvironment(state.educationalEnvironmentId());
         }
         if (!state.isActive()) {
             throw new GoneException(
