@@ -21,6 +21,15 @@ public interface MeasurementUseCase {
      */
     UUID record(RecordCommand command, UUID callerSensorId);
 
+    /**
+     * Persiste un lote de mediciones y devuelve el resultado por item.
+     *
+     * <p>Idempotente por (instalacion, variable, instante): un duplicado se marca
+     * como {@code duplicate} sin error. Las validaciones (rango de measuredAt,
+     * instalacion activa) se aplican por item sin abortar el lote.
+     */
+    BatchResult recordBatch(List<RecordCommand> commands, UUID callerSensorId);
+
     /** Ultimos valores por variable de un ambiente (HU-MON-003). */
     List<CurrentValue> currentValues(UUID environmentId);
 
@@ -43,6 +52,22 @@ public interface MeasurementUseCase {
             UUID variableId,
             BigDecimal value,
             Instant measuredAt) {
+    }
+
+    record BatchItemResult(
+            int index,
+            String status,
+            UUID id,
+            String error,
+            String message) {
+    }
+
+    record BatchResult(
+            int total,
+            int accepted,
+            int duplicates,
+            int rejected,
+            List<BatchItemResult> results) {
     }
 
     record CurrentValue(

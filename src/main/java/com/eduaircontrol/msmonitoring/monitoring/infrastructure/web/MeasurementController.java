@@ -99,6 +99,28 @@ public class MeasurementController {
     }
 
     /**
+     * Ingesta por lotes (buffer offline / reenvio). Idempotente por item.
+     *
+     * <p>Procesa hasta 1000 mediciones en una sola peticion. Cada item se valida
+     * y persiste de forma independiente: un item invalido o duplicado no aborta
+     * el lote. La respuesta incluye el resultado por item.
+     */
+    @PreAuthorize("hasAnyRole('DEVICE','ADMIN','SUPER_ADMIN')")
+    @PostMapping("/measurements/batch")
+    public MeasurementUseCase.BatchResult ingestBatch(
+            @Valid @RequestBody IngestBatchRequest request) {
+        UUID callerSensorId = callerSensorId();
+        List<MeasurementUseCase.RecordCommand> commands = request.measurements().stream()
+                .map(m -> new MeasurementUseCase.RecordCommand(
+                        m.sensorInstallationId(),
+                        m.variableId(),
+                        m.value(),
+                        m.measuredAt()))
+                .toList();
+        return measurementUseCase.recordBatch(commands, callerSensorId);
+    }
+
+    /**
      * Ultimos valores por variable de TODOS los ambientes (panel web).
      *
      * <p>Una sola consulta: pintar el ranking de ambientes sin este endpoint
@@ -129,6 +151,11 @@ public class MeasurementController {
                 from != null ? from : Instant.EPOCH,
                 to != null ? to : Instant.now(),
                 page, limit));
+    }
+
+    public record IngestBatchRequest(
+            @NotNull @jakarta.validation.constraints.Size(min = 1, max = 1000)
+            @Valid List<IngestRequest> measurements) {
     }
 
     public record IngestRequest(
