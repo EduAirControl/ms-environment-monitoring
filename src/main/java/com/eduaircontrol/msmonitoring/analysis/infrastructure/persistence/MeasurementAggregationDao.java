@@ -64,6 +64,26 @@ public class MeasurementAggregationDao {
             ORDER BY v.code
             """;
 
+    private static final String SQL_NO_THRESHOLDS = """
+            SELECT m.variable_id,
+                   v.code AS variable_code,
+                   min(m.measured_value) AS min_value,
+                   max(m.measured_value) AS max_value,
+                   avg(m.measured_value) AS avg_value,
+                   count(*) AS sample_count,
+                   0 AS exceedance_count
+            FROM environment_monitoring.environment_measurement m
+            JOIN environment_monitoring.variable v ON v.variable_id = m.variable_id
+            JOIN environment_monitoring.installation_projection p
+                ON p.sensor_installation_id = m.sensor_installation_id
+            WHERE p.educational_environment_id = ?
+              AND p.removed_at IS NULL
+              AND m.measured_at >= ?
+              AND m.measured_at < ?
+            GROUP BY m.variable_id, v.code
+            ORDER BY v.code
+            """;
+
     private final JdbcTemplate jdbcTemplate;
 
     public MeasurementAggregationDao(JdbcTemplate jdbcTemplate) {
@@ -79,26 +99,36 @@ public class MeasurementAggregationDao {
             Instant start,
             Instant end,
             Map<UUID, ThresholdRange> ranges) {
-        UUID[] variableIds = ranges.keySet().toArray(new UUID[0]);
-        BigDecimal[] mins = new BigDecimal[ranges.size()];
-        BigDecimal[] maxs = new BigDecimal[ranges.size()];
-        int index = 0;
-        for (Map.Entry<UUID, ThresholdRange> entry : ranges.entrySet()) {
-            ThresholdRange range = entry.getValue();
-            mins[index] = range == null ? null : range.min();
-            maxs[index] = range == null ? null : range.max();
-            index++;
+        boolean hasRanges = !ranges.isEmpty();
+        UUID[] variableIds = hasRanges ? ranges.keySet().toArray(new UUID[0]) : new UUID[0];
+        BigDecimal[] mins = new BigDecimal[hasRanges ? ranges.size() : 0];
+        BigDecimal[] maxs = new BigDecimal[hasRanges ? ranges.size() : 0];
+        if (hasRanges) {
+            int index = 0;
+            for (Map.Entry<UUID, ThresholdRange> entry : ranges.entrySet()) {
+                ThresholdRange range = entry.getValue();
+                mins[index] = range == null ? null : range.min();
+                maxs[index] = range == null ? null : range.max();
+                index++;
+            }
         }
 
+        String sql = hasRanges ? SQL : SQL_NO_THRESHOLDS;
+
         List<Row> rows = jdbcTemplate.query(con -> {
-            PreparedStatement statement = con.prepareStatement(SQL);
-            statement.setArray(1, con.createArrayOf("uuid", variableIds));
-            statement.setArray(2, con.createArrayOf("numeric", toObjects(mins)));
-            statement.setArray(3, con.createArrayOf("numeric", toObjects(maxs)));
-            statement.setObject(4, environmentId);
-            // PostgreSQL no puede inferir el tipo de un Instant en setObject.
-            statement.setObject(5, java.sql.Timestamp.from(start));
-            statement.setObject(6, java.sql.Timestamp.from(end));
+            PreparedStatement statement = con.prepareStatement(sql);
+            if (hasRanges) {
+                statement.setArray(1, con.createArrayOf("uuid", variableIds));
+                statement.setArray(2, con.createArrayOf("numeric", toObjects(mins)));
+                statement.setArray(3, con.createArrayOf("numeric", toObjects(maxs)));
+                statement.setObject(4, environmentId);
+                statement.setObject(5, java.sql.Timestamp.from(start));
+                statement.setObject(6, java.sql.Timestamp.from(end));
+            } else {
+                statement.setObject(1, environmentId);
+                statement.setObject(2, java.sql.Timestamp.from(start));
+                statement.setObject(3, java.sql.Timestamp.from(end));
+            }
             return statement;
         }, (rs, rowNum) -> new Row(
                 rs.getObject("variable_id", UUID.class),

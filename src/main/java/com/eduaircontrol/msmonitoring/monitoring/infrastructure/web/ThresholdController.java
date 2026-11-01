@@ -30,7 +30,7 @@ public class ThresholdController {
     private final ThresholdConfigService thresholdConfigService;
     private final TenantGuard tenantGuard;
 
-    /** Umbrales WARNING efectivos del ambiente (los propios o los del tipo). */
+    /** Umbrales INFO y WARNING efectivos del ambiente (propios o del tipo). */
     @GetMapping
     public List<ThresholdConfigService.ThresholdView> effective(@PathVariable UUID environmentId) {
         tenantGuard.requireEnvironment(environmentId);
@@ -45,10 +45,23 @@ public class ThresholdController {
             @PathVariable String variableCode,
             @RequestBody UpdateRequest request) {
         tenantGuard.requireEnvironment(environmentId);
-        return thresholdConfigService.updateWarning(
-                environmentId, variableCode, request.minValue(), request.maxValue());
+        return thresholdConfigService.update(environmentId, variableCode,
+                request.severityCode(), request.minValue(), request.maxValue());
     }
 
-    public record UpdateRequest(BigDecimal minValue, BigDecimal maxValue) {
+    /** Guarda el juego completo de umbrales del ambiente en una transaccion. */
+    @PutMapping
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
+    public List<ThresholdConfigService.ThresholdView> updateAll(
+            @PathVariable UUID environmentId,
+            @RequestBody BulkUpdateRequest request) {
+        tenantGuard.requireEnvironment(environmentId);
+        return thresholdConfigService.updateAll(environmentId, request.thresholds());
+    }
+
+    public record UpdateRequest(String severityCode, BigDecimal minValue, BigDecimal maxValue) {
+    }
+
+    public record BulkUpdateRequest(List<ThresholdConfigService.ThresholdUpdate> thresholds) {
     }
 }

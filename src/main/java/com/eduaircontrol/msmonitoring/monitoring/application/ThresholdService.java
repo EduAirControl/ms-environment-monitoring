@@ -36,6 +36,22 @@ public class ThresholdService {
     @Transactional(readOnly = true)
     public Optional<Evaluation> evaluate(UUID environmentId, UUID environmentTypeId,
                                          UUID variableId, BigDecimal value, LocalDate date) {
+        // Para las alertas solo interesa lo que sale del rango normal: un valor
+        // OK no genera alerta. El panel, en cambio, necesita tambien el OK para
+        // poder pintar el estado sin depender de que exista una alerta.
+        return evaluateSeverity(environmentId, environmentTypeId, variableId, value, date)
+                .filter(evaluation -> !"OK".equals(evaluation.severityCode()));
+    }
+
+    /**
+     * Evalua una medicion y devuelve siempre su severidad cuando hay umbrales:
+     * {@code OK}, {@code WARNING} o {@code CRITICAL}. Vacio solo si no hay
+     * umbrales aplicables (o el valor es nulo), que la UI debe pintar como
+     * desconocido.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Evaluation> evaluateSeverity(UUID environmentId, UUID environmentTypeId,
+                                                 UUID variableId, BigDecimal value, LocalDate date) {
         if (value == null) {
             return Optional.empty();
         }
@@ -65,9 +81,9 @@ public class ThresholdService {
         ThresholdRow info = bySeverity(thresholds, "INFO").orElse(null);
         ThresholdRow warning = bySeverity(thresholds, "WARNING").orElse(null);
 
-        // Dentro del rango normal: sin alerta.
+        // Dentro del rango normal: OK.
         if (info != null && inside(value, info)) {
-            return Optional.empty();
+            return Optional.of(new Evaluation(info.id(), "OK", value));
         }
         // Dentro del rango de advertencia (pero fuera del normal): WARNING.
         if (warning != null && inside(value, warning)) {

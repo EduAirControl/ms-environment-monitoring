@@ -35,7 +35,7 @@ public interface MeasurementRepository {
     long count();
 
     /** Ultima medicion de una variable en un ambiente. */
-    record EnvironmentCurrent(UUID environmentId, UUID variableId,
+    record EnvironmentCurrent(UUID environmentId, UUID environmentTypeId, UUID variableId,
                               java.math.BigDecimal value, Instant measuredAt) {
     }
 }

@@ -114,8 +114,17 @@ public class ExpoPushService {
                 log.debug("Push de alerta {} enviado a {} dispositivo(s)",
                         alert.getId(), tokens.size());
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn(
+                    "Se interrumpió el envío del push de la alerta {}",
+                    alert.getId(),
+                    e);
         } catch (Exception e) {
-            log.warn("No se pudo enviar el push de la alerta {}: {}", alert.getId(), e.getMessage());
+            log.warn(
+                    "No se pudo enviar el push de la alerta {}: {}",
+                    alert.getId(),
+                    e.getMessage());
         }
     }
 

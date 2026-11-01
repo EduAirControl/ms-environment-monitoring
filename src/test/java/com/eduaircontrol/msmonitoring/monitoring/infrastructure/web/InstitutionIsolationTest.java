@@ -322,4 +322,18 @@ class InstitutionIsolationTest extends PostgresTestBase {
                         .content(body))
                 .andExpect(status().isCreated());
     }
+
+    @Test
+    void cannotExportOrBulkUpdateForeignEnvironment() throws Exception {
+        String admin = bearer(tokenWithRoles(INSTITUTION_A, "ADMIN"));
+        mockMvc.perform(get("/api/v1/measurements/export")
+                        .param("environmentId", ENV_B.toString())
+                        .header("Authorization", admin))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(put("/api/v1/environments/" + ENV_B + "/thresholds")
+                        .header("Authorization", admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"thresholds\":[]}"))
+                .andExpect(status().isNotFound());
+    }
 }

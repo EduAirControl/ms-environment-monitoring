@@ -1,5 +1,6 @@
 package com.eduaircontrol.msmonitoring.monitoring.infrastructure.web;
 
+import com.eduaircontrol.msmonitoring.monitoring.application.MeasurementExportService;
 import com.eduaircontrol.msmonitoring.monitoring.application.MeasurementService;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.in.MeasurementUseCase;
 import jakarta.validation.Valid;
@@ -42,6 +43,7 @@ public class MeasurementController {
     private final MeasurementUseCase measurementUseCase;
     private final TenantGuard tenantGuard;
     private final com.eduaircontrol.msmonitoring.shared.contract.UserIdentityPort userIdentityPort;
+    private final MeasurementExportService exportService;
 
     /**
      * Ingesta HTTP alternativa a MQTT (HU-MON-001). Idempotente por reintento.
@@ -155,6 +157,55 @@ public class MeasurementController {
                 from != null ? from : Instant.EPOCH,
                 to != null ? to : Instant.now(),
                 page, limit));
+    }
+
+    /**
+     * Exporta mediciones a CSV o Excel.
+     *
+     * <p>Filtros: environmentId (requerido), variableId (opcional), from/to
+     * (date-time, opcionales). Formato: csv (default) o xlsx.
+     */
+    @PreAuthorize("hasAnyRole('DEVICE','ADMIN','SUPER_ADMIN')")
+    @GetMapping("/measurements/export")
+    public org.springframework.http.ResponseEntity<byte[]> exportMeasurements(
+            @RequestParam java.util.UUID environmentId,
+            @RequestParam(required = false) java.util.UUID variableId,
+            @RequestParam(required = false) java.time.Instant from,
+            @RequestParam(required = false) java.time.Instant to,
+            @RequestParam(defaultValue = "csv") String format) {
+        tenantGuard.requireEnvironment(environmentId);
+
+        if (!format.equals("csv") && !format.equals("xlsx")) {
+            throw new com.eduaircontrol.msmonitoring.shared.exception.ValidationException(
+                    "format debe ser 'csv' o 'xlsx'");
+        }
+        if (from != null && to != null && !from.isBefore(to)) {
+            throw new com.eduaircontrol.msmonitoring.shared.exception.ValidationException(
+                    "from debe ser anterior a to");
+        }
+
+        byte[] data;
+        String contentType;
+        String ext;
+        if ("xlsx".equals(format)) {
+            data = exportService.exportExcel(environmentId, variableId, from, to);
+            contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            ext = "xlsx";
+        } else {
+            data = exportService.exportCsv(environmentId, variableId, from, to);
+            contentType = "text/csv; charset=UTF-8";
+            ext = "csv";
+        }
+
+        String filename = "measurements_" + environmentId + "_" +
+                (from != null ? from.toString().substring(0, 10) : "all") + "_" +
+                (to != null ? to.toString().substring(0, 10) : "now") + "." + ext;
+
+        return org.springframework.http.ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + filename + "\"")
+                .contentType(org.springframework.http.MediaType.parseMediaType(contentType))
+                .body(data);
     }
 
     public record IngestBatchRequest(
