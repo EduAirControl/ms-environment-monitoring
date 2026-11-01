@@ -1,0 +1,59 @@
+﻿databaseChangeLog:
+  - changeSet:
+      id: ms-environment-monitoring-017-partition-environment-measurement
+      author: eduaircontrol
+      comment: "Convert environment_measurement to a partitioned table (ADR-020). Idempotent: skips if already partitioned."
+      preConditions:
+        - onFail: MARK_RAN
+        - sqlCheck:
+            expectedResult: 0
+            sql: |
+              SELECT count(*) FROM pg_partitioned_table
+              WHERE partrelid = 'environment_monitoring.environment_measurement'::regclass
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              ALTER TABLE environment_monitoring.environment_measurement
+                  RENAME TO environment_measurement_legacy;
+
+              CREATE TABLE environment_monitoring.environment_measurement (
+                  environment_measurement_id UUID NOT NULL,
+                  sensor_installation_id     UUID NOT NULL,
+                  variable_id                UUID NOT NULL,
+                  measured_value             NUMERIC(12,4) NOT NULL,
+                  measured_at                TIMESTAMPTZ NOT NULL,
+                  quality_flag_id            UUID NOT NULL,
+                  created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+                  CONSTRAINT uq_environment_measurement_inst_var_time
+                      PRIMARY KEY (sensor_installation_id, variable_id, measured_at)
+              ) PARTITION BY RANGE (measured_at);
+
+              CREATE TABLE environment_monitoring.environment_measurement_default
+                  PARTITION OF environment_monitoring.environment_measurement DEFAULT;
+
+              INSERT INTO environment_monitoring.environment_measurement
+                  (environment_measurement_id, sensor_installation_id, variable_id,
+                   measured_value, measured_at, quality_flag_id, created_at)
+              SELECT environment_measurement_id, sensor_installation_id, variable_id,
+                     measured_value, measured_at, quality_flag_id, created_at
+              FROM environment_monitoring.environment_measurement_legacy
+              ON CONFLICT DO NOTHING;
+
+              DROP TABLE environment_monitoring.environment_measurement_legacy;
+      rollback:
+        - sql:
+            dbms: postgresql
+            sql: |
+              DROP TABLE IF EXISTS environment_monitoring.environment_measurement;
+              CREATE TABLE environment_monitoring.environment_measurement (
+                  environment_measurement_id UUID PRIMARY KEY,
+                  sensor_installation_id     UUID NOT NULL,
+                  variable_id                UUID NOT NULL,
+                  measured_value             NUMERIC(12,4) NOT NULL,
+                  measured_at                TIMESTAMPTZ NOT NULL,
+                  quality_flag_id            UUID NOT NULL,
+                  created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+                  CONSTRAINT uq_environment_measurement_inst_var_time
+                      UNIQUE (sensor_installation_id, variable_id, measured_at)
+              );

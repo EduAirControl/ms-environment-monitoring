@@ -28,6 +28,7 @@ public class MeasurementService implements MeasurementUseCase {
     private final VariableCatalogPort variableCatalogPort;
     private final MeasurementRecordingService recordingService;
     private final ThresholdService thresholdService;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Override
     public UUID record(RecordCommand command, UUID callerSensorId) {
@@ -139,17 +140,66 @@ public class MeasurementService implements MeasurementUseCase {
     @Override
     @Transactional(readOnly = true)
     public List<MeasurementView> history(HistoryQuery query) {
-        return measurementRepository
-                .history(query.environmentId(), query.variableId(),
-                        query.from(), query.to(), query.page(), query.limit())
-                .content().stream()
-                .map(measurement -> new MeasurementView(
-                        measurement.getId(),
-                        measurement.getVariableId(),
-                        variableCodeOf(measurement.getVariableId()),
-                        measurement.getMeasuredValue(),
-                        measurement.getMeasuredAt()))
-                .toList();
+        Instant from = query.from() != null ? query.from() : Instant.EPOCH;
+        Instant to = query.to() != null ? query.to() : Instant.now();
+        long days = java.time.Duration.between(from, to).toDays();
+
+        if (days <= 1) {
+            // Raw measurements for short ranges
+            return measurementRepository
+                    .history(query.environmentId(), query.variableId(),
+                            from, to, query.page(), query.limit())
+                    .content().stream()
+                    .map(measurement -> new MeasurementView(
+                            measurement.getId(),
+                            measurement.getVariableId(),
+                            variableCodeOf(measurement.getVariableId()),
+                            measurement.getMeasuredValue(),
+                            measurement.getMeasuredAt()))
+                    .toList();
+        }
+
+        // Aggregated data for larger ranges
+        String table;
+        if (days <= 7) {
+            table = "measurement_agg_5m";
+        } else if (days <= 90) {
+            table = "measurement_agg_1h";
+        } else {
+            table = "measurement_agg_1d";
+        }
+
+        StringBuilder sql = new StringBuilder(
+                "SELECT a.sensor_installation_id, a.variable_id, a.bucket_start, a.avg_value " +
+                        "FROM environment_monitoring." + table + " a ");
+        List<Object> params = new ArrayList<>();
+        // Filter by environment via installation_projection
+        if (query.environmentId() != null) {
+            sql.append("JOIN environment_monitoring.installation_projection p " +
+                    "ON p.sensor_installation_id = a.sensor_installation_id " +
+                    "WHERE p.educational_environment_id = ? ");
+            params.add(query.environmentId());
+        } else {
+            sql.append("WHERE 1=1 ");
+        }
+        if (query.variableId() != null) {
+            sql.append("AND a.variable_id = ? ");
+            params.add(query.variableId());
+        }
+        sql.append("AND a.bucket_start >= ? AND a.bucket_start <= ? ");
+        params.add(from);
+        params.add(to);
+        sql.append("ORDER BY a.bucket_start LIMIT ? OFFSET ?");
+        params.add(query.limit());
+        params.add((query.page() - 1) * query.limit());
+
+        return jdbc.query(sql.toString(), (rs, rowNum) -> new MeasurementView(
+                null,
+                rs.getObject("variable_id", UUID.class),
+                variableCodeOf(rs.getObject("variable_id", UUID.class)),
+                rs.getBigDecimal("avg_value"),
+                rs.getTimestamp("bucket_start").toInstant()),
+                params.toArray());
     }
 
     @Override
