@@ -12,7 +12,8 @@ import org.springframework.stereotype.Component;
  * Job de retencion (ADR-020).
  *
  * <p>Diariamente a las 03:00 UTC elimina particiones vencidas y datos de
- * agregacion segun la politica de retencion.
+ * agregacion segun la politica de retencion. Usa la funcion PL/pgSQL
+ * drop_partition_if_expired para evitar SQL dinamico en Java (SonarCloud S2077).
  */
 @Slf4j
 @Component
@@ -31,21 +32,19 @@ public class RetentionJob {
                 """);
         for (var row : partitions) {
             String name = (String) row.get("partition_name");
-            if (name == null || name.endsWith("_default")) continue;
-            // Extract date from partition name (environment_measurement_YYYY_MM)
-            String[] parts = name.split("_");
-            if (parts.length < 4) continue;
+            if (name == null) continue;
+            // Extract just the table name (without schema prefix)
+            String tableName = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1) : name;
+            if (tableName.endsWith("_default")) continue;
             try {
-                int year = Integer.parseInt(parts[parts.length - 2]);
-                int month = Integer.parseInt(parts[parts.length - 1]);
-                java.time.YearMonth ym = java.time.YearMonth.of(year, month);
-                java.time.Instant partitionEnd = ym.plusMonths(1).atDay(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
-                if (partitionEnd.isBefore(Instant.now().minus(90, ChronoUnit.DAYS))) {
-                    jdbc.execute("DROP TABLE IF EXISTS " + name);
-                    log.info("Dropped expired partition: {}", name);
+                Boolean dropped = jdbc.queryForObject(
+                        "SELECT environment_monitoring.drop_partition_if_expired(?, ?)",
+                        Boolean.class, tableName, 90);
+                if (Boolean.TRUE.equals(dropped)) {
+                    log.info("Dropped expired partition: {}", tableName);
                 }
-            } catch (NumberFormatException e) {
-                log.warn("Skipping partition with unparseable name: {}", name);
+            } catch (Exception e) {
+                log.warn("Error processing partition {}: {}", tableName, e.getMessage());
             }
         }
 

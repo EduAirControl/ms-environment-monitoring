@@ -49,6 +49,22 @@ databaseChangeLog:
   - include:
       file: db/changelog/changes/017-partition-environment-measurement.yaml
 
+  # 2d) Funciones auxiliares para gestion de particiones (ADR-020, evita SQL dinamico en Java).
+  - changeSet:
+      id: ms-environment-monitoring-002d-partition-functions
+      author: eduaircontrol
+      comment: Funciones PL/pgSQL para crear y eliminar particiones de forma segura.
+      changes:
+        - sqlFile:
+            path: db/changelog/canonical/05_jobs/001_partition_functions.sql
+            splitStatements: false
+      rollback:
+        - sql:
+            dbms: postgresql
+            sql: |
+              DROP FUNCTION IF EXISTS environment_monitoring.drop_partition_if_expired(TEXT, INTEGER);
+              DROP FUNCTION IF EXISTS environment_monitoring.ensure_partition(TEXT, TEXT, TEXT);
+
   # 3) Replicas de catalogos y tablas propias del dominio.
   - changeSet:
       id: ms-environment-monitoring-003-catalog-replicas

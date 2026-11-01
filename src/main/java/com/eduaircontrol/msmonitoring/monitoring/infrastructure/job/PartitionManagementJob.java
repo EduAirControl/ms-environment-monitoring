@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
  * Job de gestion de particiones (ADR-020).
  *
  * <p>Diariamente crea particiones mensuales para los proximos 3 meses si no
- * existen, para que las inserciones futuras no fallen.
+ * existen, usando la funcion PL/pgSQL ensure_partition (sin SQL dinamico en Java).
  */
 @Slf4j
 @Component
@@ -28,12 +28,11 @@ public class PartitionManagementJob {
             YearMonth ym = now.plusMonths(i);
             String partitionName = "environment_measurement_" + ym.getYear() + "_" +
                     String.format("%02d", ym.getMonthValue());
-            String tableName = "environment_monitoring." + partitionName;
+            String fromLiteral = ym.atDay(1).atStartOfDay().atOffset(ZoneOffset.UTC).toString();
+            String toLiteral = ym.plusMonths(1).atDay(1).atStartOfDay().atOffset(ZoneOffset.UTC).toString();
             try {
-                jdbc.execute("CREATE TABLE IF NOT EXISTS " + tableName +
-                        " PARTITION OF environment_monitoring.environment_measurement " +
-                        "FOR VALUES FROM ('" + ym.atDay(1).atStartOfDay().atOffset(ZoneOffset.UTC) + "') " +
-                        "TO ('" + ym.plusMonths(1).atDay(1).atStartOfDay().atOffset(ZoneOffset.UTC) + "')");
+                jdbc.update("SELECT environment_monitoring.ensure_partition(?, ?, ?)",
+                        partitionName, fromLiteral, toLiteral);
                 log.info("Ensured partition: {}", partitionName);
             } catch (Exception e) {
                 log.debug("Partition {} already exists or error: {}", partitionName, e.getMessage());
