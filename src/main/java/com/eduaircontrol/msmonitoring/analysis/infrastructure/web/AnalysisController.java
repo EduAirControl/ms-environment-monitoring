@@ -18,6 +18,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -49,12 +50,14 @@ public class AnalysisController {
     private final RequestAnalysisUseCase requestAnalysisUseCase;
     private final FindAnalysisUseCase findAnalysisUseCase;
     private final FindAnalysisService findAnalysisService;
+    private final TenantGuard tenantGuard;
     private final VariableCatalogPort variableCatalogPort;
     private final UserIdentityPort userIdentityPort;
 
     @PostMapping
     public ResponseEntity<AnalysisResponse> create(@Valid @RequestBody AnalysisRequest request,
                                                    Authentication authentication) {
+        tenantGuard.requireEnvironment(request.environmentId());
         UUID requestedBy = userIdentityPort.currentUserId().orElse(null);
         EnvironmentalAnalysis analysis = requestAnalysisUseCase.execute(new RequestAnalysisUseCase.Command(
                 request.environmentId(),
@@ -75,6 +78,7 @@ public class AnalysisController {
             @RequestParam(name = "status", required = false) AnalysisStatusCode status,
             @RequestParam(name = "page", defaultValue = "1") int page,
             @RequestParam(name = "limit", defaultValue = "20") int limit) {
+        tenantGuard.requireEnvironment(environmentId);
         int safePage = Math.max(page, 1);
         int safeLimit = Math.min(Math.max(limit, 1), MAX_LIMIT);
         PageResult<EnvironmentalAnalysis> result = findAnalysisUseCase.search(
@@ -88,7 +92,9 @@ public class AnalysisController {
 
     @GetMapping("/{id}")
     public AnalysisResponse get(@PathVariable UUID id) {
-        return toResponse(findAnalysisService.require(id), null);
+        var analysis = findAnalysisService.require(id);
+        tenantGuard.requireEnvironment(analysis.getEducationalEnvironmentId());
+        return toResponse(analysis, null);
     }
 
     @GetMapping("/latest")
@@ -96,6 +102,7 @@ public class AnalysisController {
             @RequestParam(name = "environmentId") UUID environmentId,
             @RequestParam(name = "period", defaultValue = "DAY") AnalysisPeriod period,
             @RequestParam(name = "referenceDate", required = false) LocalDate referenceDate) {
+        tenantGuard.requireEnvironment(environmentId);
         return findAnalysisUseCase
                 .latestCompleted(environmentId, period,
                         referenceDate == null ? null

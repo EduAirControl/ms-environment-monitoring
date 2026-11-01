@@ -6,6 +6,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +38,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
 
+    /** Principales que operan sin institucion: dispositivos y super administradores. */
+    private static boolean isSystemPrincipal(JwtService.AuthenticatedUser user) {
+        return user.roles().contains("SUPER_ADMIN") || user.roles().contains("DEVICE");
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
@@ -49,6 +55,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             String token = authHeader.substring(BEARER.length());
             try {
                 JwtService.AuthenticatedUser user = jwtService.authenticate(token);
+                if (user.institutionId() == null && !isSystemPrincipal(user)) {
+                    // Sin institucion el filtrado por tenant no se aplicaria y el
+                    // usuario veria todas las instituciones: se rechaza.
+                    log.warn("Token de usuario sin institutionId rechazado (roles={})", user.roles());
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setCharacterEncoding("UTF-8");
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"status\":403,\"message\":\"Token sin institucion\"}");
+                    return;
+                }
                 // El token se guarda como credencial: UserIdentityAdapter lo relee
                 // para resolver el userId desde los claims.
                 UsernamePasswordAuthenticationToken auth =
@@ -59,7 +75,25 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                                         .map(r -> new SimpleGrantedAuthority("ROLE_" + r))
                                         .toList());
                 SecurityContextHolder.getContext().setAuthentication(auth);
-                TenantContext.set(user.institutionId(), user.campusId());
+                UUID institutionId = user.institutionId();
+                if (institutionId == null && user.roles().contains("SUPER_ADMIN")) {
+                    // El SUPER_ADMIN ve todo por defecto; con ?institutionId= acota la
+                    // consulta a una institucion (y evita cargar el catalogo completo).
+                    String requested = request.getParameter("institutionId");
+                    if (requested != null && !requested.isBlank()) {
+                        try {
+                            institutionId = UUID.fromString(requested);
+                        } catch (IllegalArgumentException ex) {
+                            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                            response.setCharacterEncoding("UTF-8");
+                            response.setContentType("application/json");
+                            response.getWriter().write(
+                                    "{\"status\":400,\"message\":\"institutionId invalido\"}");
+                            return;
+                        }
+                    }
+                }
+                TenantContext.set(institutionId, user.campusId());
             } catch (Exception e) {
                 log.debug("Token invalido: {}", e.getMessage());
                 // Sin autenticacion: SecurityConfig responde 401.

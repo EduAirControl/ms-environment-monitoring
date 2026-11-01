@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
@@ -40,6 +41,7 @@ public class MeasurementController {
     private static final String DEVICE_ROLE = "DEVICE";
 
     private final MeasurementUseCase measurementUseCase;
+    private final TenantGuard tenantGuard;
     private final com.eduaircontrol.msmonitoring.shared.contract.UserIdentityPort userIdentityPort;
     private final MeasurementExportService exportService;
 
@@ -54,7 +56,6 @@ public class MeasurementController {
     @PostMapping("/measurements")
     @ResponseStatus(HttpStatus.CREATED)
     public MeasurementIdResponse ingest(@Valid @RequestBody IngestRequest request) {
-        requireMeasuredAtInRange(request.measuredAt());
         UUID id = measurementUseCase.record(new MeasurementUseCase.RecordCommand(
                 request.sensorInstallationId(),
                 request.variableId(),
@@ -79,25 +80,6 @@ public class MeasurementController {
         return userIdentityPort.currentUserId()
                 .orElseThrow(() -> new com.eduaircontrol.msmonitoring.shared.exception.ForbiddenException(
                         "Token de dispositivo sin identidad"));
-    }
-
-    /**
-     * Acota la fecha de la medicion.
-     *
-     * <p>Sin esto el cliente controla por completo {@code measuredAt} y puede
-     * retroactivar o adelantar datos a voluntad, lo que ademas permite saltarse la
-     * dedup por (instalacion, variable, instante).
-     */
-    private static void requireMeasuredAtInRange(java.time.Instant measuredAt) {
-        if (measuredAt == null) {
-            return;
-        }
-        java.time.Instant now = java.time.Instant.now();
-        if (measuredAt.isBefore(now.minus(24, java.time.temporal.ChronoUnit.HOURS))
-                || measuredAt.isAfter(now.plus(5, java.time.temporal.ChronoUnit.MINUTES))) {
-            throw new com.eduaircontrol.msmonitoring.shared.exception.ValidationException(
-                    "measuredAt fuera de rango admitido");
-        }
     }
 
     /**
@@ -136,6 +118,7 @@ public class MeasurementController {
     /** Ultimos valores por variable de un ambiente (HU-MON-003). */
     @GetMapping("/environments/{id}/current")
     public List<MeasurementUseCase.CurrentValue> current(@PathVariable UUID id) {
+        tenantGuard.requireEnvironment(id);
         return measurementUseCase.currentValues(id);
     }
 
@@ -148,6 +131,7 @@ public class MeasurementController {
             @RequestParam(name = "to", required = false) Instant to,
             @RequestParam(name = "page", defaultValue = "1") int page,
             @RequestParam(name = "limit", defaultValue = "20") int limit) {
+        tenantGuard.requireEnvironment(id);
         return measurementUseCase.history(new MeasurementUseCase.HistoryQuery(
                 id, variableId,
                 from != null ? from : Instant.EPOCH,
@@ -169,6 +153,7 @@ public class MeasurementController {
             @RequestParam(required = false) java.time.Instant from,
             @RequestParam(required = false) java.time.Instant to,
             @RequestParam(defaultValue = "csv") String format) {
+        tenantGuard.requireEnvironment(environmentId);
 
         if (!format.equals("csv") && !format.equals("xlsx")) {
             throw new com.eduaircontrol.msmonitoring.shared.exception.ValidationException(

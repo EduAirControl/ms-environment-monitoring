@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,6 +35,7 @@ public class DashboardController {
 
     private final EnvironmentLookupPort environmentLookupPort;
     private final MeasurementUseCase measurementUseCase;
+    private final TenantGuard tenantGuard;
     private final FindAnalysisUseCase findAnalysisUseCase;
     private final VariableCatalogPort variableCatalogPort;
 
@@ -91,6 +93,7 @@ public class DashboardController {
             @RequestParam(name = "period", defaultValue = "day") String period,
             @RequestParam(name = "variable", defaultValue = "temperature") String variable,
             @RequestParam(name = "environmentId", required = false) UUID environmentId) {
+        tenantGuard.requireEnvironment(environmentId);
 
         // La ventana de consulta debe coincidir con el tamaño del bucket: si se
         // pide "day" y se agrupa por dias con una ventana de 30 dias, todos los

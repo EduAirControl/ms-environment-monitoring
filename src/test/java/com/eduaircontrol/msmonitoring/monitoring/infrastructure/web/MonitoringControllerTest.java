@@ -31,6 +31,9 @@ import org.springframework.web.context.WebApplicationContext;
  */
 class MonitoringControllerTest extends PostgresTestBase {
 
+    private static final UUID TEST_INSTITUTION =
+            UUID.fromString("99999999-9999-4999-8999-999999999999");
+
     private static final UUID ENVIRONMENT_ID =
             UUID.fromString("aaaaaaaa-0000-4000-8000-000000000001");
     private static final UUID ENVIRONMENT_TYPE_ID =
@@ -71,10 +74,10 @@ class MonitoringControllerTest extends PostgresTestBase {
 
         jdbc.update("""
                 insert into environment_monitoring.educational_environment
-                    (educational_environment_id, code, name, environment_type_id, floor)
-                values (?, 'MON-TEST', 'Ambiente monitoreo', ?, 1)
-                ON CONFLICT (educational_environment_id) DO NOTHING
-                """, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID);
+                    (educational_environment_id, code, name, environment_type_id, floor, institution_id)
+                values (?, 'MON-TEST', 'Ambiente monitoreo', ?, 1, ?)
+                ON CONFLICT (educational_environment_id) DO UPDATE SET institution_id = EXCLUDED.institution_id
+                """, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, TEST_INSTITUTION);
         // Se limpia la proyeccion antes de sembrarla: ConsumerTestBase reutiliza el
         // mismo INSTALLATION_ID con otro sensor_id y, con ON CONFLICT DO NOTHING,
         // se quedaria su fila. Un solo borrado: si se repite entre los dos inserts,
@@ -100,6 +103,12 @@ class MonitoringControllerTest extends PostgresTestBase {
 
         // El sub del token es el sensorId: asi se puede exigir pertenencia.
         token = tokenFor(SENSOR_ID, "monitor@test.com");
+    }
+
+    /** Token de persona con institucion: los dispositivos no pueden leer. */
+    private String readerToken() {
+        return com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
+                UUID.randomUUID(), "reader@test.com", java.util.List.of("USER"), TEST_INSTITUTION, null);
     }
 
     /** Token de dispositivo: el unico que puede enviar mediciones. */
@@ -133,7 +142,7 @@ class MonitoringControllerTest extends PostgresTestBase {
                 new BigDecimal("23.0"), Timestamp.from(Instant.now()), VALID_FLAG);
 
         mockMvc.perform(get("/api/v1/environments/{id}/current", ENVIRONMENT_ID)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].variableCode").value("temperature"));
     }
@@ -141,7 +150,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void listsAlertsEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/alerts")
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }
@@ -167,11 +176,11 @@ class MonitoringControllerTest extends PostgresTestBase {
         UUID alertId = seedAlert();
 
         mockMvc.perform(delete("/api/v1/alerts/{id}", alertId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/alerts")
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }
@@ -182,10 +191,10 @@ class MonitoringControllerTest extends PostgresTestBase {
         UUID alertId = seedAlert();
 
         mockMvc.perform(delete("/api/v1/alerts/{id}", alertId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isNoContent());
         mockMvc.perform(delete("/api/v1/alerts/{id}", alertId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isNoContent());
     }
 
@@ -193,7 +202,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void deletingAnUnknownAlertReturnsNotFound() throws Exception {
         mockMvc.perform(delete("/api/v1/alerts/{id}", UUID.randomUUID())
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isNotFound());
     }
 
@@ -208,10 +217,10 @@ class MonitoringControllerTest extends PostgresTestBase {
         UUID otherInstallation = UUID.randomUUID();
         jdbc.update("""
                 insert into environment_monitoring.educational_environment
-                    (educational_environment_id, code, name, environment_type_id, floor)
-                values (?, 'MON-TEST-2', 'Ambiente dos', ?, 1)
+                    (educational_environment_id, code, name, environment_type_id, floor, institution_id)
+                values (?, 'MON-TEST-2', 'Ambiente dos', ?, 1, ?)
                 ON CONFLICT (educational_environment_id) DO NOTHING
-                """, otherEnv, ENVIRONMENT_TYPE_ID);
+                """, otherEnv, ENVIRONMENT_TYPE_ID, TEST_INSTITUTION);
         jdbc.update("""
                 insert into environment_monitoring.installation_projection
                     (sensor_installation_id, educational_environment_id,
@@ -245,7 +254,7 @@ class MonitoringControllerTest extends PostgresTestBase {
                 new BigDecimal("600"), Timestamp.from(Instant.now()), VALID_FLAG);
 
         mockMvc.perform(get("/api/v1/environments/current")
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[?(@.environmentId=='" + ENVIRONMENT_ID
@@ -267,7 +276,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void rejectsIngestFromAnOrdinaryUserToken() throws Exception {
         String userToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                UUID.randomUUID(), "user@test.com", "USER");
+                UUID.randomUUID(), "user@test.com", java.util.List.of("USER"), TEST_INSTITUTION, null);
 
         mockMvc.perform(post("/api/v1/measurements")
                         .header("Authorization", "Bearer " + userToken)
@@ -299,7 +308,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void forgedAdminHeadersDoNotElevateAUserToken() throws Exception {
         String userToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                UUID.randomUUID(), "user@test.com", "USER");
+                UUID.randomUUID(), "user@test.com", java.util.List.of("USER"), TEST_INSTITUTION, null);
 
         mockMvc.perform(post("/api/v1/measurements")
                         .header("Authorization", "Bearer " + userToken)
@@ -314,7 +323,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void acceptsIngestFromAnAdminToken() throws Exception {
         String adminToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                UUID.randomUUID(), "admin@test.com", "ADMIN");
+                UUID.randomUUID(), "admin@test.com", java.util.List.of("ADMIN"), TEST_INSTITUTION, null);
 
         mockMvc.perform(post("/api/v1/measurements")
                         .header("Authorization", "Bearer " + adminToken)
@@ -422,7 +431,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void adminTokenCanWriteToAnyInstallation() throws Exception {
         String adminToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                UUID.randomUUID(), "admin@test.com", "ADMIN");
+                UUID.randomUUID(), "admin@test.com", java.util.List.of("ADMIN"), TEST_INSTITUTION, null);
 
         mockMvc.perform(post("/api/v1/measurements")
                         .header("Authorization", "Bearer " + adminToken)
@@ -484,7 +493,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void listsMeasurementsEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }
@@ -503,7 +512,7 @@ class MonitoringControllerTest extends PostgresTestBase {
         String now = Instant.now().toString();
         String from = Instant.now().minusSeconds(3600).toString();
         mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + readerToken())
                         .param("from", from)
                         .param("to", now))
                 .andExpect(status().isOk())
@@ -528,7 +537,7 @@ class MonitoringControllerTest extends PostgresTestBase {
         String now = Instant.now().plusSeconds(10).toString();
         String from = Instant.now().minusSeconds(3600).toString();
         mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + readerToken())
                         .param("from", from)
                         .param("to", now)
                         .param("limit", "10"))
@@ -551,7 +560,8 @@ class MonitoringControllerTest extends PostgresTestBase {
     void ingestsBatchWithSingle() throws Exception {
         String body = "{\"measurements\":[{\"sensorInstallationId\":\"" + INSTALLATION_ID + "\""
                 + ",\"variableId\":\"" + TEMPERATURE + "\""
-                + ",\"value\":22.5}]}";
+                + ",\"value\":22.5"
+                + ",\"measuredAt\":\"" + Instant.now() + "\"}]}";
 
         mockMvc.perform(post("/api/v1/measurements/batch")
                         .header("Authorization", "Bearer " + token)
@@ -599,11 +609,128 @@ class MonitoringControllerTest extends PostgresTestBase {
                 .andExpect(jsonPath("$.duplicates").value(1));
     }
 
+    private String batchItem(UUID installationId, UUID variableId, String value, Instant measuredAt) {
+        return "{\"sensorInstallationId\":\"" + installationId + "\""
+                + ",\"variableId\":\"" + variableId + "\""
+                + ",\"value\":" + value
+                + (measuredAt != null ? ",\"measuredAt\":\"" + measuredAt + "\"" : "")
+                + "}";
+    }
+
+    private org.springframework.test.web.servlet.ResultActions postBatch(String... items)
+            throws Exception {
+        return mockMvc.perform(post("/api/v1/measurements/batch")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"measurements\":[" + String.join(",", items) + "]}"));
+    }
+
+    private int countMeasurements() {
+        Integer total = jdbc.queryForObject(
+                "select count(*) from environment_monitoring.environment_measurement",
+                Integer.class);
+        return total == null ? 0 : total;
+    }
+
+    /** Un lote mixto cuenta cada item y deja pasar a los validos. */
+    @Test
+    void batchCountsAcceptedDuplicateAndRejectedItems() throws Exception {
+        Instant ts = Instant.now().minusSeconds(30);
+        postBatch(batchItem(INSTALLATION_ID, TEMPERATURE, "20.5", ts)).andExpect(status().isOk());
+
+        postBatch(
+                batchItem(INSTALLATION_ID, TEMPERATURE, "20.5", ts),
+                batchItem(INSTALLATION_ID, TEMPERATURE, "21.0", ts.plusSeconds(10)),
+                batchItem(INSTALLATION_ID, TEMPERATURE, "22.0", Instant.now().minusSeconds(48 * 3600)),
+                batchItem(INSTALLATION_ID, TEMPERATURE, "23.0", null))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(4))
+                .andExpect(jsonPath("$.duplicates").value(1))
+                .andExpect(jsonPath("$.accepted").value(1))
+                .andExpect(jsonPath("$.rejected").value(2))
+                .andExpect(jsonPath("$.results[0].status").value("duplicate"))
+                .andExpect(jsonPath("$.results[1].status").value("accepted"))
+                .andExpect(jsonPath("$.results[2].error").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.results[3].error").value("VALIDATION_ERROR"));
+
+        org.junit.jupiter.api.Assertions.assertEquals(2, countMeasurements());
+    }
+
+    /** measuredAt mas de 5 minutos en el futuro se rechaza; dentro de la tolerancia, no. */
+    @Test
+    void batchRejectsFutureMeasuredAtBeyondTolerance() throws Exception {
+        postBatch(
+                batchItem(INSTALLATION_ID, TEMPERATURE, "20.0", Instant.now().plusSeconds(120)),
+                batchItem(INSTALLATION_ID, TEMPERATURE, "21.0", Instant.now().plusSeconds(600)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results[0].status").value("accepted"))
+                .andExpect(jsonPath("$.results[1].status").value("rejected"));
+    }
+
+    /** Una instalacion cerrada falla el lote entero con 410 y no guarda nada. */
+    @Test
+    void batchAgainstAClosedInstallationReturnsGoneAndStoresNothing() throws Exception {
+        UUID closedInstallation = UUID.randomUUID();
+        jdbc.update("""
+                insert into environment_monitoring.installation_projection
+                    (sensor_installation_id, educational_environment_id,
+                     environment_type_id, sensor_id, removed_at)
+                values (?, ?, ?, ?, now())
+                """, closedInstallation, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, SENSOR_ID);
+
+        postBatch(
+                batchItem(INSTALLATION_ID, TEMPERATURE, "20.0", Instant.now()),
+                batchItem(closedInstallation, TEMPERATURE, "21.0", Instant.now()))
+                .andExpect(status().isGone());
+
+        org.junit.jupiter.api.Assertions.assertEquals(0, countMeasurements());
+    }
+
+    /** Una instalacion de otro sensor falla el lote entero con 403. */
+    @Test
+    void batchWithAnotherSensorsInstallationReturnsForbidden() throws Exception {
+        postBatch(
+                batchItem(INSTALLATION_ID, TEMPERATURE, "20.0", Instant.now()),
+                batchItem(OTHER_INSTALLATION_ID, TEMPERATURE, "21.0", Instant.now()))
+                .andExpect(status().isForbidden());
+
+        org.junit.jupiter.api.Assertions.assertEquals(0, countMeasurements());
+    }
+
+    /**
+     * Dos envios simultaneos de la misma lectura: una sola fila y ningun error.
+     * Con existsBy + save el perdedor chocaba con la clave primaria.
+     */
+    @Test
+    void concurrentSubmissionsOfTheSameReadingStoreOneRow() throws Exception {
+        Instant ts = Instant.now().minusSeconds(10);
+        int threads = 8;
+        java.util.concurrent.ExecutorService pool =
+                java.util.concurrent.Executors.newFixedThreadPool(threads);
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.List<java.util.concurrent.Future<Integer>> statuses = new java.util.ArrayList<>();
+
+        for (int i = 0; i < threads; i++) {
+            statuses.add(pool.submit(() -> {
+                start.await();
+                return postBatch(batchItem(INSTALLATION_ID, TEMPERATURE, "20.5", ts))
+                        .andReturn().getResponse().getStatus();
+            }));
+        }
+        start.countDown();
+        for (java.util.concurrent.Future<Integer> status : statuses) {
+            org.junit.jupiter.api.Assertions.assertEquals(200, status.get());
+        }
+        pool.shutdown();
+
+        org.junit.jupiter.api.Assertions.assertEquals(1, countMeasurements());
+    }
+
     /** Dashboard series con rango sin datos devuelve lista vacia. */
     @Test
     void dashboardSeriesEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/dashboard/series")
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + readerToken())
                         .param("period", "day"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
@@ -613,7 +740,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void dashboardSummaryEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/dashboard/summary")
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + readerToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.counts.measurements").value(0));
     }
@@ -624,7 +751,7 @@ class MonitoringControllerTest extends PostgresTestBase {
         String now = Instant.now().toString();
         String from = Instant.now().minusSeconds(2 * 86400).toString();
         mockMvc.perform(get("/api/v1/environments/{id}/measurements", ENVIRONMENT_ID)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + readerToken())
                         .param("from", from)
                         .param("to", now))
                 .andExpect(status().isOk())
@@ -635,7 +762,7 @@ class MonitoringControllerTest extends PostgresTestBase {
     @Test
     void allowsReadsWithARealToken() throws Exception {
         String userToken = com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                UUID.randomUUID(), "reader@test.com", "USER");
+                UUID.randomUUID(), "reader@test.com", java.util.List.of("USER"), TEST_INSTITUTION, null);
 
         mockMvc.perform(get("/api/v1/environments/current")
                         .header("Authorization", "Bearer " + userToken))

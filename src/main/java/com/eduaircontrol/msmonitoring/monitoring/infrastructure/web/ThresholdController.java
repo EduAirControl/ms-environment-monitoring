@@ -4,6 +4,7 @@ import com.eduaircontrol.msmonitoring.monitoring.application.ThresholdConfigServ
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import com.eduaircontrol.msmonitoring.shared.tenant.TenantGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,10 +28,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class ThresholdController {
 
     private final ThresholdConfigService thresholdConfigService;
+    private final TenantGuard tenantGuard;
 
     /** Umbrales INFO y WARNING efectivos del ambiente (propios o del tipo). */
     @GetMapping
     public List<ThresholdConfigService.ThresholdView> effective(@PathVariable UUID environmentId) {
+        tenantGuard.requireEnvironment(environmentId);
         return thresholdConfigService.effective(environmentId);
     }
 
@@ -41,6 +44,7 @@ public class ThresholdController {
             @PathVariable UUID environmentId,
             @PathVariable String variableCode,
             @RequestBody UpdateRequest request) {
+        tenantGuard.requireEnvironment(environmentId);
         return thresholdConfigService.update(environmentId, variableCode,
                 request.severityCode(), request.minValue(), request.maxValue());
     }
@@ -51,6 +55,7 @@ public class ThresholdController {
     public List<ThresholdConfigService.ThresholdView> updateAll(
             @PathVariable UUID environmentId,
             @RequestBody BulkUpdateRequest request) {
+        tenantGuard.requireEnvironment(environmentId);
         return thresholdConfigService.updateAll(environmentId, request.thresholds());
     }
 

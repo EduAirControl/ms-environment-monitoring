@@ -3,10 +3,10 @@ package com.eduaircontrol.msmonitoring.monitoring.application;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.in.MeasurementUseCase;
 import com.eduaircontrol.msmonitoring.monitoring.domain.port.out.MeasurementRepository;
 import com.eduaircontrol.msmonitoring.shared.contract.VariableCatalogPort;
+import com.eduaircontrol.msmonitoring.shared.exception.ValidationException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -35,8 +35,23 @@ public class MeasurementService implements MeasurementUseCase {
         return recordingService.record(command, callerSensorId);
     }
 
+    /**
+     * Procesa un lote item por item (ADR-021).
+     *
+     * <p>Solo un {@link ValidationException} (o un item mal formado) marca un item como
+     * {@code rejected}: el nodo borra esa lectura y no la reintenta. Cualquier otro fallo,
+     * como un error transitorio de base de datos, sube como 5xx para que el nodo conserve
+     * el lote y lo reenvie; los items ya guardados volveran como {@code duplicate}.
+     */
     @Override
     public BatchResult recordBatch(List<RecordCommand> commands, UUID callerSensorId) {
+        // 403/410 describen a la instalacion, no a una lectura: fallan el lote entero.
+        commands.stream()
+                .map(RecordCommand::sensorInstallationId)
+                .distinct()
+                .forEach(installationId ->
+                        recordingService.requireActiveInstallation(installationId, callerSensorId));
+
         List<BatchItemResult> results = new ArrayList<>();
         int accepted = 0;
         int duplicates = 0;
@@ -47,22 +62,10 @@ public class MeasurementService implements MeasurementUseCase {
 
             try {
                 if (command.value() == null) {
-                    results.add(new BatchItemResult(i, "rejected", null,
-                            "VALIDATION_ERROR", "value es obligatorio"));
-                    rejected++;
-                    continue;
+                    throw new ValidationException("value es obligatorio");
                 }
-
-                if (command.measuredAt() != null) {
-                    Instant now = Instant.now();
-
-                    if (command.measuredAt().isBefore(now.minus(24, ChronoUnit.HOURS))
-                            || command.measuredAt().isAfter(now.plus(5, ChronoUnit.MINUTES))) {
-                        results.add(new BatchItemResult(i, "rejected", null,
-                                "VALIDATION_ERROR", "measuredAt fuera de rango admitido"));
-                        rejected++;
-                        continue;
-                    }
+                if (command.measuredAt() == null) {
+                    throw new ValidationException("measuredAt es obligatorio en el lote");
                 }
 
                 UUID id = recordingService.record(command, callerSensorId);
@@ -75,9 +78,9 @@ public class MeasurementService implements MeasurementUseCase {
                     accepted++;
                 }
 
-            } catch (Exception e) {
-                results.add(new BatchItemResult(i, "rejected", null, "ERROR",
-                        e.getMessage() != null ? e.getMessage() : "error desconocido"));
+            } catch (ValidationException e) {
+                results.add(new BatchItemResult(i, "rejected", null,
+                        "VALIDATION_ERROR", e.getMessage()));
                 rejected++;
             }
         }

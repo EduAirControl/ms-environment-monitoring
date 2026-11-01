@@ -33,6 +33,9 @@ import org.springframework.web.context.WebApplicationContext;
  */
 class AnalysisControllerTest extends PostgresTestBase {
 
+    private static final UUID TEST_INSTITUTION =
+            UUID.fromString("99999999-9999-4999-8999-999999999999");
+
     private static final UUID ENVIRONMENT_TYPE_ID =
             UUID.fromString("00000000-0000-4000-8000-000000000081");
     private static final UUID TEMPERATURE = UUID.fromString("00000000-0000-4000-8000-000000000071");
@@ -71,9 +74,10 @@ class AnalysisControllerTest extends PostgresTestBase {
         String suffix = environmentId.toString().substring(0, 8);
         jdbc.update("""
                 insert into environment_monitoring.educational_environment
-                    (educational_environment_id, code, name, environment_type_id, floor)
-                values (?, ?, ?, ?, 1)
-                """, environmentId, "AULA-" + suffix, "Aula " + suffix, ENVIRONMENT_TYPE_ID);
+                    (educational_environment_id, code, name, environment_type_id, floor, institution_id)
+                values (?, ?, ?, ?, 1, ?)
+                """, environmentId, "AULA-" + suffix, "Aula " + suffix, ENVIRONMENT_TYPE_ID,
+                TEST_INSTITUTION);
 
         // Proyeccion local: la agregacion resuelve el ambiente por aqui.
         jdbc.update("""
@@ -120,7 +124,7 @@ class AnalysisControllerTest extends PostgresTestBase {
     /** Firma un token con el mismo secreto que usa el servicio. */
     private String tokenFor(UUID userId, String email) {
         return com.eduaircontrol.msmonitoring.shared.security.TestTokenMint.mint(
-                userId, email, "USER");
+                userId, email, java.util.List.of("USER"), TEST_INSTITUTION, null);
     }
 
     private String json(String environment, String period) {
@@ -168,9 +172,10 @@ class AnalysisControllerTest extends PostgresTestBase {
         UUID empty = UUID.randomUUID();
         jdbc.update("""
                 insert into environment_monitoring.educational_environment
-                    (educational_environment_id, code, name, environment_type_id, floor)
-                values (?, ?, 'Ambiente sin datos', ?, 2)
-                """, empty, "VACIO-" + empty.toString().substring(0, 8), ENVIRONMENT_TYPE_ID);
+                    (educational_environment_id, code, name, environment_type_id, floor, institution_id)
+                values (?, ?, 'Ambiente sin datos', ?, 2, ?)
+                """, empty, "VACIO-" + empty.toString().substring(0, 8), ENVIRONMENT_TYPE_ID,
+                TEST_INSTITUTION);
 
         mockMvc.perform(post("/api/v1/analyses")
                         .header("Authorization", "Bearer " + token)
