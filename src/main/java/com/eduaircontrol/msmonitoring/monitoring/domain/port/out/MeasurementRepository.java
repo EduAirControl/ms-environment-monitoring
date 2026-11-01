@@ -14,8 +14,12 @@ public interface MeasurementRepository {
 
     EnvironmentMeasurement save(EnvironmentMeasurement measurement);
 
-    boolean existsByInstallationAndVariableAndInstant(UUID installationId, UUID variableId,
-                                                     Instant measuredAt);
+    /**
+     * Guarda la medicion si la clave (instalacion, variable, instante) no existe.
+     *
+     * @return {@code true} si la inserto, {@code false} si ya existia (duplicado)
+     */
+    boolean insertIfAbsent(EnvironmentMeasurement measurement);
 
     Optional<EnvironmentMeasurement> findById(UUID id);
 

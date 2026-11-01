@@ -9,7 +9,9 @@ import com.eduaircontrol.msmonitoring.shared.tenant.TenantGuard;
 import com.eduaircontrol.msmonitoring.shared.exception.ForbiddenException;
 import com.eduaircontrol.msmonitoring.shared.exception.GoneException;
 import com.eduaircontrol.msmonitoring.shared.exception.NotFoundException;
+import com.eduaircontrol.msmonitoring.shared.exception.ValidationException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,9 @@ public class MeasurementRecordingService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
+    private static final Duration PAST_WINDOW = Duration.ofHours(24);
+    private static final Duration FUTURE_WINDOW = Duration.ofMinutes(5);
+
     @Transactional
     public UUID record(RecordCommand command, UUID callerSensorId) {
         if (command.value() == null) {
@@ -35,17 +40,11 @@ public class MeasurementRecordingService {
         }
 
         requireActiveInstallation(command.sensorInstallationId(), callerSensorId);
+        requireMeasuredAtInWindow(command.measuredAt());
 
         Instant measuredAt = command.measuredAt() != null
                 ? command.measuredAt()
                 : clock.instant();
-
-        if (measurementRepository.existsByInstallationAndVariableAndInstant(
-                command.sensorInstallationId(),
-                command.variableId(),
-                measuredAt)) {
-            return null;
-        }
 
         EnvironmentMeasurement measurement = EnvironmentMeasurement.builder()
                 .id(UUID.randomUUID())
@@ -57,7 +56,12 @@ public class MeasurementRecordingService {
                 .createdAt(clock.instant())
                 .build();
 
-        UUID savedId = measurementRepository.save(measurement).getId();
+        // Un duplicado es un exito sin efecto: no se reevaluan alertas.
+        if (!measurementRepository.insertIfAbsent(measurement)) {
+            return null;
+        }
+
+        UUID savedId = measurement.getId();
 
         // La medición y su evaluación de alertas comparten la transacción.
         alertingService.evaluate(
@@ -70,7 +74,30 @@ public class MeasurementRecordingService {
         return savedId;
     }
 
-    private void requireActiveInstallation(
+    /**
+     * Acota la fecha de la medicion a {@code [ahora-24h, ahora+5min]} (ADR-021).
+     *
+     * <p>Sin esto el cliente controla por completo {@code measuredAt} y puede retroactivar
+     * o adelantar datos a voluntad. Una fecha ausente se acepta y toma la hora del servidor.
+     */
+    public void requireMeasuredAtInWindow(Instant measuredAt) {
+        if (measuredAt == null) {
+            return;
+        }
+        Instant now = clock.instant();
+        if (measuredAt.isBefore(now.minus(PAST_WINDOW))
+                || measuredAt.isAfter(now.plus(FUTURE_WINDOW))) {
+            throw new ValidationException("measuredAt fuera de rango admitido");
+        }
+    }
+
+    /**
+     * Comprueba que la instalacion exista, este activa y pertenezca al llamador.
+     *
+     * <p>Un lote lo exige antes de procesar cualquier item: 403 y 410 describen a la
+     * instalacion, no a una lectura, y el nodo debe dejar de enviar en vez de borrar datos.
+     */
+    public void requireActiveInstallation(
             UUID sensorInstallationId,
             UUID callerSensorId) {
 
