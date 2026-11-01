@@ -560,7 +560,8 @@ class MonitoringControllerTest extends PostgresTestBase {
     void ingestsBatchWithSingle() throws Exception {
         String body = "{\"measurements\":[{\"sensorInstallationId\":\"" + INSTALLATION_ID + "\""
                 + ",\"variableId\":\"" + TEMPERATURE + "\""
-                + ",\"value\":22.5}]}";
+                + ",\"value\":22.5"
+                + ",\"measuredAt\":\"" + Instant.now() + "\"}]}";
 
         mockMvc.perform(post("/api/v1/measurements/batch")
                         .header("Authorization", "Bearer " + token)
@@ -606,6 +607,123 @@ class MonitoringControllerTest extends PostgresTestBase {
                         .content(body2))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.duplicates").value(1));
+    }
+
+    private String batchItem(UUID installationId, UUID variableId, String value, Instant measuredAt) {
+        return "{\"sensorInstallationId\":\"" + installationId + "\""
+                + ",\"variableId\":\"" + variableId + "\""
+                + ",\"value\":" + value
+                + (measuredAt != null ? ",\"measuredAt\":\"" + measuredAt + "\"" : "")
+                + "}";
+    }
+
+    private org.springframework.test.web.servlet.ResultActions postBatch(String... items)
+            throws Exception {
+        return mockMvc.perform(post("/api/v1/measurements/batch")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"measurements\":[" + String.join(",", items) + "]}"));
+    }
+
+    private int countMeasurements() {
+        Integer total = jdbc.queryForObject(
+                "select count(*) from environment_monitoring.environment_measurement",
+                Integer.class);
+        return total == null ? 0 : total;
+    }
+
+    /** Un lote mixto cuenta cada item y deja pasar a los validos. */
+    @Test
+    void batchCountsAcceptedDuplicateAndRejectedItems() throws Exception {
+        Instant ts = Instant.now().minusSeconds(30);
+        postBatch(batchItem(INSTALLATION_ID, TEMPERATURE, "20.5", ts)).andExpect(status().isOk());
+
+        postBatch(
+                batchItem(INSTALLATION_ID, TEMPERATURE, "20.5", ts),
+                batchItem(INSTALLATION_ID, TEMPERATURE, "21.0", ts.plusSeconds(10)),
+                batchItem(INSTALLATION_ID, TEMPERATURE, "22.0", Instant.now().minusSeconds(48 * 3600)),
+                batchItem(INSTALLATION_ID, TEMPERATURE, "23.0", null))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(4))
+                .andExpect(jsonPath("$.duplicates").value(1))
+                .andExpect(jsonPath("$.accepted").value(1))
+                .andExpect(jsonPath("$.rejected").value(2))
+                .andExpect(jsonPath("$.results[0].status").value("duplicate"))
+                .andExpect(jsonPath("$.results[1].status").value("accepted"))
+                .andExpect(jsonPath("$.results[2].error").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.results[3].error").value("VALIDATION_ERROR"));
+
+        org.junit.jupiter.api.Assertions.assertEquals(2, countMeasurements());
+    }
+
+    /** measuredAt mas de 5 minutos en el futuro se rechaza; dentro de la tolerancia, no. */
+    @Test
+    void batchRejectsFutureMeasuredAtBeyondTolerance() throws Exception {
+        postBatch(
+                batchItem(INSTALLATION_ID, TEMPERATURE, "20.0", Instant.now().plusSeconds(120)),
+                batchItem(INSTALLATION_ID, TEMPERATURE, "21.0", Instant.now().plusSeconds(600)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results[0].status").value("accepted"))
+                .andExpect(jsonPath("$.results[1].status").value("rejected"));
+    }
+
+    /** Una instalacion cerrada falla el lote entero con 410 y no guarda nada. */
+    @Test
+    void batchAgainstAClosedInstallationReturnsGoneAndStoresNothing() throws Exception {
+        UUID closedInstallation = UUID.randomUUID();
+        jdbc.update("""
+                insert into environment_monitoring.installation_projection
+                    (sensor_installation_id, educational_environment_id,
+                     environment_type_id, sensor_id, removed_at)
+                values (?, ?, ?, ?, now())
+                """, closedInstallation, ENVIRONMENT_ID, ENVIRONMENT_TYPE_ID, SENSOR_ID);
+
+        postBatch(
+                batchItem(INSTALLATION_ID, TEMPERATURE, "20.0", Instant.now()),
+                batchItem(closedInstallation, TEMPERATURE, "21.0", Instant.now()))
+                .andExpect(status().isGone());
+
+        org.junit.jupiter.api.Assertions.assertEquals(0, countMeasurements());
+    }
+
+    /** Una instalacion de otro sensor falla el lote entero con 403. */
+    @Test
+    void batchWithAnotherSensorsInstallationReturnsForbidden() throws Exception {
+        postBatch(
+                batchItem(INSTALLATION_ID, TEMPERATURE, "20.0", Instant.now()),
+                batchItem(OTHER_INSTALLATION_ID, TEMPERATURE, "21.0", Instant.now()))
+                .andExpect(status().isForbidden());
+
+        org.junit.jupiter.api.Assertions.assertEquals(0, countMeasurements());
+    }
+
+    /**
+     * Dos envios simultaneos de la misma lectura: una sola fila y ningun error.
+     * Con existsBy + save el perdedor chocaba con la clave primaria.
+     */
+    @Test
+    void concurrentSubmissionsOfTheSameReadingStoreOneRow() throws Exception {
+        Instant ts = Instant.now().minusSeconds(10);
+        int threads = 8;
+        java.util.concurrent.ExecutorService pool =
+                java.util.concurrent.Executors.newFixedThreadPool(threads);
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.List<java.util.concurrent.Future<Integer>> statuses = new java.util.ArrayList<>();
+
+        for (int i = 0; i < threads; i++) {
+            statuses.add(pool.submit(() -> {
+                start.await();
+                return postBatch(batchItem(INSTALLATION_ID, TEMPERATURE, "20.5", ts))
+                        .andReturn().getResponse().getStatus();
+            }));
+        }
+        start.countDown();
+        for (java.util.concurrent.Future<Integer> status : statuses) {
+            org.junit.jupiter.api.Assertions.assertEquals(200, status.get());
+        }
+        pool.shutdown();
+
+        org.junit.jupiter.api.Assertions.assertEquals(1, countMeasurements());
     }
 
     /** Dashboard series con rango sin datos devuelve lista vacia. */

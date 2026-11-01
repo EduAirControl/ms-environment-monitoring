@@ -56,7 +56,6 @@ public class MeasurementController {
     @PostMapping("/measurements")
     @ResponseStatus(HttpStatus.CREATED)
     public MeasurementIdResponse ingest(@Valid @RequestBody IngestRequest request) {
-        requireMeasuredAtInRange(request.measuredAt());
         UUID id = measurementUseCase.record(new MeasurementUseCase.RecordCommand(
                 request.sensorInstallationId(),
                 request.variableId(),
@@ -81,25 +80,6 @@ public class MeasurementController {
         return userIdentityPort.currentUserId()
                 .orElseThrow(() -> new com.eduaircontrol.msmonitoring.shared.exception.ForbiddenException(
                         "Token de dispositivo sin identidad"));
-    }
-
-    /**
-     * Acota la fecha de la medicion.
-     *
-     * <p>Sin esto el cliente controla por completo {@code measuredAt} y puede
-     * retroactivar o adelantar datos a voluntad, lo que ademas permite saltarse la
-     * dedup por (instalacion, variable, instante).
-     */
-    private static void requireMeasuredAtInRange(java.time.Instant measuredAt) {
-        if (measuredAt == null) {
-            return;
-        }
-        java.time.Instant now = java.time.Instant.now();
-        if (measuredAt.isBefore(now.minus(24, java.time.temporal.ChronoUnit.HOURS))
-                || measuredAt.isAfter(now.plus(5, java.time.temporal.ChronoUnit.MINUTES))) {
-            throw new com.eduaircontrol.msmonitoring.shared.exception.ValidationException(
-                    "measuredAt fuera de rango admitido");
-        }
     }
 
     /**

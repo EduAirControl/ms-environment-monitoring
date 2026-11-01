@@ -7,14 +7,37 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface EnvironmentMeasurementJpaRepository
         extends JpaRepository<EnvironmentMeasurement, UUID> {
 
-    boolean existsBySensorInstallationIdAndVariableIdAndMeasuredAt(
-            UUID sensorInstallationId, UUID variableId, Instant measuredAt);
+    /**
+     * Inserta la medicion salvo que ya exista la clave (instalacion, variable, instante).
+     *
+     * <p>La decision la toma la base con {@code ON CONFLICT}: dos envios simultaneos de la
+     * misma lectura no pueden ganar ambos ni fallar por clave duplicada.
+     *
+     * @return 1 si inserto, 0 si ya existia
+     */
+    @Modifying
+    @Query(value = """
+            insert into environment_monitoring.environment_measurement
+                (environment_measurement_id, sensor_installation_id, variable_id,
+                 measured_value, measured_at, quality_flag_id, created_at)
+            values (:id, :installationId, :variableId, :value, :measuredAt,
+                    :qualityFlagId, :createdAt)
+            on conflict (sensor_installation_id, variable_id, measured_at) do nothing
+            """, nativeQuery = true)
+    int insertIfAbsent(@Param("id") UUID id,
+                       @Param("installationId") UUID installationId,
+                       @Param("variableId") UUID variableId,
+                       @Param("value") java.math.BigDecimal value,
+                       @Param("measuredAt") Instant measuredAt,
+                       @Param("qualityFlagId") UUID qualityFlagId,
+                       @Param("createdAt") Instant createdAt);
 
     @Query(value = """
             select m.* from environment_monitoring.environment_measurement m

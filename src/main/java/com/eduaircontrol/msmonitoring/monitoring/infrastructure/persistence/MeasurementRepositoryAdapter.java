@@ -30,11 +30,16 @@ public class MeasurementRepositoryAdapter implements MeasurementRepository {
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public boolean existsByInstallationAndVariableAndInstant(UUID installationId, UUID variableId,
-                                                             Instant measuredAt) {
-        return measurements.existsBySensorInstallationIdAndVariableIdAndMeasuredAt(
-                installationId, variableId, measuredAt);
+    @Transactional
+    public boolean insertIfAbsent(EnvironmentMeasurement measurement) {
+        return measurements.insertIfAbsent(
+                measurement.getId(),
+                measurement.getSensorInstallationId(),
+                measurement.getVariableId(),
+                measurement.getMeasuredValue(),
+                measurement.getMeasuredAt(),
+                measurement.getQualityFlagId(),
+                measurement.getCreatedAt()) == 1;
     }
 
     @Override
