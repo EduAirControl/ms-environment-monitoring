@@ -25,6 +25,30 @@ databaseChangeLog:
               DROP TABLE IF EXISTS environment_monitoring.inbox_message;
               DROP TABLE IF EXISTS environment_monitoring.environment_measurement;
 
+  # 2b) Tablas de agregacion (ADR-020).
+  - changeSet:
+      id: ms-environment-monitoring-002b-aggregation-tables
+      author: eduaircontrol
+      comment: Tablas de agregacion para consultas historicas (5 min, 1 h, 1 dia).
+      changes:
+        - sqlFile:
+            path: db/changelog/canonical/03_tables/02_read_model/003_measurement_agg_5m.sql
+        - sqlFile:
+            path: db/changelog/canonical/03_tables/02_read_model/004_measurement_agg_1h.sql
+        - sqlFile:
+            path: db/changelog/canonical/03_tables/02_read_model/005_measurement_agg_1d.sql
+      rollback:
+        - sql:
+            dbms: postgresql
+            sql: |
+              DROP TABLE IF EXISTS environment_monitoring.measurement_agg_1d;
+              DROP TABLE IF EXISTS environment_monitoring.measurement_agg_1h;
+              DROP TABLE IF EXISTS environment_monitoring.measurement_agg_5m;
+
+  # 2c) Particionamiento de environment_measurement (ADR-020).
+  - include:
+      file: db/changelog/changes/017-partition-environment-measurement.yaml
+
   # 3) Replicas de catalogos y tablas propias del dominio.
   - changeSet:
       id: ms-environment-monitoring-003-catalog-replicas
