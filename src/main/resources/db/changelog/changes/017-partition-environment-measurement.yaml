@@ -1,4 +1,4 @@
-﻿databaseChangeLog:
+databaseChangeLog:
   - changeSet:
       id: ms-environment-monitoring-017-partition-environment-measurement
       author: eduaircontrol
@@ -16,6 +16,12 @@
             sql: |
               ALTER TABLE environment_monitoring.environment_measurement
                   RENAME TO environment_measurement_legacy;
+
+              -- La restriccion y su indice conservan el nombre al renombrar la tabla:
+              -- se libera para que la tabla particionada pueda usarlo.
+              ALTER TABLE environment_monitoring.environment_measurement_legacy
+                  RENAME CONSTRAINT uq_environment_measurement_inst_var_time
+                  TO uq_environment_measurement_inst_var_time_legacy;
 
               CREATE TABLE environment_monitoring.environment_measurement (
                   environment_measurement_id UUID NOT NULL,
