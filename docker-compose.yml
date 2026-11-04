@@ -7,11 +7,11 @@ services:
     environment:
       POSTGRES_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-eduaircontrol_monitoring}
       POSTGRES_USER: ${POSTGRES_USER:-monitoring_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monitoring_pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?}
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
-      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME?}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD?}
       # Access tokens RS256 de ms-security (ADR-006). Con compose por servicio no hay
       # ms-security en la red: se apunta al host. Sobrescriba JWKS_URI si lo hay.
       JWKS_URI: ${JWKS_URI:-http://host.docker.internal:8081/api/v1/auth/jwks}
@@ -39,7 +39,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-eduaircontrol_monitoring}
       POSTGRES_USER: ${POSTGRES_USER:-monitoring_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monitoring_pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?}
     ports:
       - "5435:5432"
     volumes:
